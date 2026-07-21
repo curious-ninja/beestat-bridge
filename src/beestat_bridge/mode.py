@@ -52,18 +52,19 @@ class ModeManager:
     async def watch_ha_entity(self, ha: HomeAssistant) -> None:
         """Poll the configured input_select so the mode can be flipped from an
         HA dashboard. Poll (not subscribe) is fine at this frequency."""
-        entity_id = self._settings.ha_mode_entity
-        if entity_id is None:
-            return
         last_seen: str | None = None
         while True:
-            try:
-                state = await ha.get_state(entity_id)
-                value = state.get("state") if state else None
-                if value in VALID_MODES and value != last_seen:
-                    if last_seen is not None:  # Skip initial sync-up.
-                        self.set_override(value)
-                    last_seen = value
-            except Exception:
-                logger.exception("mode entity poll failed")
+            # Re-read each cycle: the entity can be (un)configured at runtime
+            # through the bridge's config UI.
+            entity_id = self._settings.ha_mode_entity
+            if entity_id is not None:
+                try:
+                    state = await ha.get_state(entity_id)
+                    value = state.get("state") if state else None
+                    if value in VALID_MODES and value != last_seen:
+                        if last_seen is not None:  # Skip initial sync-up.
+                            self.set_override(value)
+                        last_seen = value
+                except Exception:
+                    logger.exception("mode entity poll failed")
             await asyncio.sleep(15)

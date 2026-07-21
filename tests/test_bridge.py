@@ -133,3 +133,58 @@ def test_login_endpoint_validates_input(client):
     assert response.json() == {"error": "email and password required"}
     response = client.post("/admin/ecobee/mfa", json={"code": "123456"})
     assert response.json() == {"error": "no login in progress; start over"}
+
+
+def test_config_roundtrip_applies_live(client):
+    new_config = {
+        "thermostats": [
+            {
+                "serial": "999888777666",
+                "homekit_entity": "climate.new_stat",
+                "system_type": "furnace",
+                "hvac_action_mapping": True,
+                "equipment_sources": {"fan": "binary_sensor.hvac_g"},
+            }
+        ],
+        "outdoor_temperature": "sensor.outdoor",
+        "poll_interval": 30,
+        "mode_entity": None,
+        "auto_failover": True,
+    }
+    response = client.post("/admin/config", json=new_config)
+    assert response.json()["saved"] is True
+
+    # Applied immediately: status and the local source see the new thermostat.
+    assert client.get("/admin/status").json()["thermostats"] == ["999888777666"]
+    tokens = client.post("/token", data={"grant_type": "refresh_token"}).json()
+    body = client.get(
+        "/1/thermostat",
+        params={"body": json.dumps({"selection": {"selectionType": "registered"}})},
+        headers={"Authorization": f"Bearer {tokens['access_token']}"},
+    ).json()
+    assert body["thermostatList"][0]["identifier"] == "999888777666"
+
+    # Round-trips through GET, including the wire-sensor mapping.
+    config = client.get("/admin/config").json()["config"]
+    assert config["thermostats"][0]["equipment_sources"]["fan"] == "binary_sensor.hvac_g"
+    assert config["auto_failover"] is True
+
+
+def test_config_validation_rejects_bad_input(client):
+    bad = {"thermostats": [{"serial": "1", "homekit_entity": "sensor.nope"}]}
+    assert "climate.*" in client.post("/admin/config", json=bad).json()["error"]
+    dupes = {
+        "thermostats": [
+            {"serial": "1", "homekit_entity": "climate.a"},
+            {"serial": "1", "homekit_entity": "climate.b"},
+        ]
+    }
+    assert "duplicate" in client.post("/admin/config", json=dupes).json()["error"]
+    # A rejected save must not clobber the running config.
+    assert client.get("/admin/status").json()["thermostats"] == ["123456789012"]
+
+
+def test_ha_entities_endpoint_degrades_without_ha(client):
+    assert client.get("/admin/ha/entities").json() == {
+        "climate": [], "binary_sensor": [], "outdoor": []
+    }

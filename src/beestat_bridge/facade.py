@@ -25,7 +25,7 @@ from fastapi.responses import (
     RedirectResponse,
 )
 
-from . import ecobee_auth, tokens, ui
+from . import ecobee_auth, settings as settings_module, tokens, ui
 from .sources.cloud import CloudAuthDead
 from .sources.local import status_envelope
 
@@ -252,3 +252,58 @@ async def admin_ecobee_mfa(request: Request) -> dict[str, Any]:
     except ecobee_auth.EcobeeAuthError as error:
         return {"error": str(error)}
     return await _finish_login(context, body)
+
+
+# -- runtime configuration (the bridge's own config UI) ----------------------
+
+@router.get("/admin/config")
+async def admin_get_config(request: Request) -> dict[str, Any]:
+    context = _context(request)
+    return {
+        "config": settings_module.editable_config(context.settings),
+        "system_types": list(settings_module.VALID_SYSTEM_TYPES),
+        "equipment_source_keys": list(settings_module.EQUIPMENT_SOURCE_KEYS),
+        "ui_saved": context.store.runtime_config() is not None,
+    }
+
+
+@router.post("/admin/config")
+async def admin_set_config(request: Request) -> dict[str, Any]:
+    """Validate, persist, and apply in place — no restart needed."""
+    context = _context(request)
+    payload = await request.json()
+    try:
+        settings_module.apply_editable_config(context.settings, payload)
+    except (ValueError, KeyError, TypeError) as error:
+        return {"error": str(error)}
+    context.store.set_runtime_config(settings_module.editable_config(context.settings))
+    logger.info(
+        "runtime config saved via UI: %d thermostat(s)", len(context.settings.thermostats)
+    )
+    return {"saved": True, "config": settings_module.editable_config(context.settings)}
+
+
+@router.get("/admin/ha/entities")
+async def admin_ha_entities(request: Request) -> dict[str, list[str]]:
+    """Entity ids for the config UI's pickers, grouped by how they're used."""
+    context = _context(request)
+    groups: dict[str, list[str]] = {"climate": [], "binary_sensor": [], "outdoor": []}
+    if context.ha is None:
+        return groups
+    try:
+        states = await context.ha.get_states()
+    except Exception:
+        logger.exception("could not list HA entities")
+        return groups
+    for state in states:
+        entity_id = state.get("entity_id", "")
+        domain = entity_id.split(".", 1)[0]
+        if domain == "climate":
+            groups["climate"].append(entity_id)
+        elif domain == "binary_sensor":
+            groups["binary_sensor"].append(entity_id)
+        elif domain in ("weather", "sensor"):
+            groups["outdoor"].append(entity_id)
+    for group in groups.values():
+        group.sort()
+    return groups

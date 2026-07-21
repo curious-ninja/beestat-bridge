@@ -1,21 +1,8 @@
 configuration:
   mode:
-    name: Data source mode
+    name: Default data source
     description: >-
       cloud = pass through to the real ecobee API (and archive everything
-      locally). local = serve beestat from Home Assistant data only.
-  auto_failover:
-    name: Automatic failover
-    description: >-
-      Serve from local data automatically if ecobee cloud auth dies, and send
-      a Home Assistant notification.
-  outdoor_temperature:
-    name: Outdoor temperature entity
-    description: weather.* or sensor.* entity used for outdoorTemp in local mode.
-  thermostats:
-    name: Thermostats
-    description: >-
-      One entry per thermostat. serial = the ecobee serial number (same value
-      beestat uses); homekit_entity = the climate entity from the HomeKit
-      integration; the *_entity fields are for a future ESPHome 24VAC call
-      monitor and can stay empty.
+      locally). local = serve beestat from Home Assistant data only. This is
+      only the default — switch live, and configure everything else, from
+      the Beestat Bridge page in the sidebar.

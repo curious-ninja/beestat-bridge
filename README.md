@@ -28,16 +28,17 @@ Design principles (agreed upfront):
 ## Installation on Home Assistant (the intended path — no CLI)
 
 1. Settings → Add-ons → Add-on Store → ⋮ → Repositories → add this repo's URL.
-2. Install **Beestat Bridge**. Fill in the Configuration tab (thermostat
-   serial + climate entity, system type). Start it.
-3. Open **Beestat Bridge** in the HA sidebar and log in with your ecobee
-   account (MFA supported). Done — the bridge is connected, archiving, and
-   recording.
+2. Install **Beestat Bridge** and start it.
+3. Open **Beestat Bridge** in the HA sidebar. Log in with your ecobee account
+   (MFA supported), add your thermostats (entity pickers filled from HA), and
+   you're done — connected, archiving, recording.
 
-Everything is done through the UI: configuration via the app's Configuration
-tab, ecobee login and mode switching via the sidebar page. The setup page and
-admin endpoints refuse direct network access when running as an HA app — they
-are only reachable through the authenticated HA sidebar (Ingress).
+Everything happens in the bridge's own sidebar page: ecobee login, thermostat
+and entity configuration, mode switching, status. Changes save to the
+bridge's storage and apply immediately — no restarts. The app's Configuration
+tab holds only the default data-source mode. The page and admin endpoints
+refuse direct network access when running as an HA app — they are only
+reachable through the authenticated HA sidebar (Ingress).
 
 The **Beestat** app itself (PHP + MySQL + sync cron, pre-pointed at the
 bridge) will be the second app in this repository — not built yet.

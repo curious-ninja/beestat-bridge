@@ -14,7 +14,7 @@ from .facade import router
 from .ha import HomeAssistant, HomeAssistantError
 from .mode import ModeManager
 from .recorder import run_recorder
-from .settings import Settings, load_settings
+from .settings import Settings, apply_editable_config, load_settings
 from .sources.cloud import CloudSource
 from .sources.local import LocalSource
 from .store import Store
@@ -28,6 +28,15 @@ INGRESS_PROXY_IP = "172.30.32.2"
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
     store = Store(settings.db_path)
+
+    # Config saved through the bridge's web UI overrides the file / add-on
+    # options and survives restarts.
+    saved_config = store.runtime_config()
+    if saved_config is not None:
+        try:
+            apply_editable_config(settings, saved_config)
+        except (ValueError, KeyError):
+            logger.exception("stored runtime config is invalid; using file config")
 
     context = SimpleNamespace(
         settings=settings,
@@ -49,7 +58,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # Cloud-only operation is legal, but the whole point of the bridge
             # is the local path — be loud about it.
             logger.warning("local recorder DISABLED: %s", error)
-        if context.ha is not None and settings.thermostats:
+        # Start even with zero thermostats configured: they can be added at
+        # runtime through the config UI and are picked up on the next poll.
+        if context.ha is not None:
             tasks.append(asyncio.create_task(run_recorder(settings, store, context.ha)))
             context.recorder_running = True
             tasks.append(asyncio.create_task(context.mode_manager.watch_ha_entity(context.ha)))

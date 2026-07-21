@@ -134,24 +134,6 @@ def load_settings() -> Settings:
     if mode not in VALID_MODES:
         raise ValueError(f"mode must be one of {VALID_MODES}, got {mode!r}")
 
-    # equipment sources come nested (config.yaml) or flat as <key>_entity
-    # (HA app options.json, whose schema language can't express maps).
-    thermostats = [
-        Thermostat(
-            serial=str(entry["serial"]),
-            homekit_entity=entry["homekit_entity"],
-            system_type=entry.get("system_type", "heat_pump_electric_aux"),
-            hvac_action_mapping=entry.get("hvac_action_mapping", True),
-            equipment_sources={
-                key: (entry.get("equipment_sources") or {}).get(key)
-                or entry.get(f"{key}_entity")
-                or None
-                for key in EQUIPMENT_SOURCE_KEYS
-            },
-        )
-        for entry in raw.get("thermostats", []) or []
-    ]
-
     settings = Settings(
         mode=mode,
         auto_failover=bool(raw.get("auto_failover", False)),
@@ -164,7 +146,72 @@ def load_settings() -> Settings:
         ecobee_auth_domain=ecobee.get("auth_domain", DEFAULT_ECOBEE_AUTH_DOMAIN),
         ecobee_api_base_url=ecobee.get("api_base_url", DEFAULT_ECOBEE_API_BASE_URL),
         outdoor_temperature=raw.get("outdoor_temperature"),
-        thermostats=thermostats,
+        thermostats=parse_thermostats(raw.get("thermostats", []) or []),
     )
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     return settings
+
+
+def parse_thermostats(entries: list[dict[str, Any]]) -> list[Thermostat]:
+    """Equipment sources come nested (config.yaml, bridge UI) or flat as
+    <key>_entity (HA app options.json, whose schema can't express maps)."""
+    thermostats = [
+        Thermostat(
+            serial=str(entry["serial"]).strip(),
+            homekit_entity=entry["homekit_entity"],
+            system_type=entry.get("system_type", "heat_pump_electric_aux"),
+            hvac_action_mapping=bool(entry.get("hvac_action_mapping", True)),
+            equipment_sources={
+                key: (entry.get("equipment_sources") or {}).get(key)
+                or entry.get(f"{key}_entity")
+                or None
+                for key in EQUIPMENT_SOURCE_KEYS
+            },
+        )
+        for entry in entries
+    ]
+    serials = [thermostat.serial for thermostat in thermostats]
+    if len(set(serials)) != len(serials):
+        raise ValueError("duplicate thermostat serial numbers")
+    for thermostat in thermostats:
+        if not thermostat.serial:
+            raise ValueError("thermostat serial must not be empty")
+        if not thermostat.homekit_entity.startswith("climate."):
+            raise ValueError(
+                f"thermostat {thermostat.serial}: homekit_entity must be a climate.* entity"
+            )
+    return thermostats
+
+
+# Fields the bridge's own web UI may edit at runtime (persisted in SQLite,
+# overriding the file / add-on options; applied in place, no restart).
+
+def editable_config(settings: Settings) -> dict[str, Any]:
+    return {
+        "auto_failover": settings.auto_failover,
+        "outdoor_temperature": settings.outdoor_temperature,
+        "poll_interval": settings.ha_poll_interval,
+        "mode_entity": settings.ha_mode_entity,
+        "thermostats": [
+            {
+                "serial": thermostat.serial,
+                "homekit_entity": thermostat.homekit_entity,
+                "system_type": thermostat.system_type,
+                "hvac_action_mapping": thermostat.hvac_action_mapping,
+                "equipment_sources": dict(thermostat.equipment_sources),
+            }
+            for thermostat in settings.thermostats
+        ],
+    }
+
+
+def apply_editable_config(settings: Settings, raw: dict[str, Any]) -> None:
+    """Validate then mutate the live Settings in place. Every component holds
+    a reference to this object and reads it per operation, so changes take
+    effect immediately — no restart."""
+    thermostats = parse_thermostats(raw.get("thermostats", []) or [])
+    settings.thermostats = thermostats
+    settings.auto_failover = bool(raw.get("auto_failover", settings.auto_failover))
+    settings.outdoor_temperature = raw.get("outdoor_temperature") or None
+    settings.ha_mode_entity = raw.get("mode_entity") or None
+    settings.ha_poll_interval = max(15, int(raw.get("poll_interval", settings.ha_poll_interval)))

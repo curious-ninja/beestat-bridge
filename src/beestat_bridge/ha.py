@@ -37,6 +37,12 @@ class HomeAssistant:
         response.raise_for_status()
         return response.json()
 
+    async def get_states(self) -> list[dict[str, Any]]:
+        """All entity states; used to populate the config UI's pickers."""
+        response = await self._client.get("/states")
+        response.raise_for_status()
+        return response.json()
+
     async def notify(self, title: str, message: str) -> None:
         """Persistent notification; used e.g. on cloud auth death."""
         try:

@@ -108,6 +108,16 @@ class Store:
                 self._set_meta("bridge_account_id", account_id)
             return account_id
 
+    def runtime_config(self) -> dict[str, Any] | None:
+        """UI-edited config overlay; overrides the file / add-on options."""
+        with self._lock:
+            raw = self._get_meta("runtime_config")
+            return json.loads(raw) if raw else None
+
+    def set_runtime_config(self, config: dict[str, Any]) -> None:
+        with self._lock:
+            self._set_meta("runtime_config", json.dumps(config))
+
     def mode_override(self) -> str | None:
         with self._lock:
             return self._get_meta("mode_override")
