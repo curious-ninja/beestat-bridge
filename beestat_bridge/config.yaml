@@ -1,0 +1,37 @@
+# Home Assistant app (add-on) manifest for beestat-bridge.
+name: Beestat Bridge
+version: 0.4.0
+slug: beestat_bridge
+description: >-
+  Ecobee API emulator for self-hosted beestat — cloud passthrough while ecobee
+  access lasts, Home Assistant / HomeKit data forever.
+url: https://github.com/curious-ninja/beestat-bridge
+arch:
+  - aarch64
+  - amd64
+  - armv7
+  - armhf
+  - i386
+init: false
+# Supervisor injects SUPERVISOR_TOKEN and proxies the HA API: no manual
+# long-lived token setup needed in app mode.
+homeassistant_api: true
+# The setup/status page appears in the HA sidebar; all setup is UI-only.
+# Direct (non-Ingress) access to the page and /admin is refused by the app.
+ingress: true
+ingress_port: 8127
+panel_icon: mdi:home-thermometer
+panel_title: Beestat Bridge
+ports:
+  8127/tcp: 8127
+ports_description:
+  8127/tcp: Fake ecobee API for beestat (server-to-server; the setup UI is in the sidebar)
+map: []
+# Everything else (thermostats, entities, failover, intervals) is configured
+# in the bridge's own page in the HA sidebar — saved live, no restart.
+options:
+  mode: cloud
+schema:
+  mode: list(cloud|local)
+# TODO(bridge): publish prebuilt multi-arch images via GitHub Actions and add:
+# image: ghcr.io/curious-ninja/beestat-bridge-{arch}

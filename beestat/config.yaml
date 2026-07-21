@@ -1,0 +1,35 @@
+# Home Assistant app (add-on) manifest for beestat (self-hosted, via the bridge).
+name: Beestat
+version: 0.1.0
+slug: beestat
+description: >-
+  Self-hosted beestat HVAC analytics, fed by Beestat Bridge instead of the
+  ecobee cloud developer API.
+url: https://github.com/curious-ninja/beestat-bridge
+arch:
+  - aarch64
+  - amd64
+  - armv7
+  - armhf
+  - i386
+init: false
+# NOT Ingress: beestat's frontend assumes it is served from the site root
+# (absolute /js, /css, /api URLs and OAuth redirects), which Ingress's token
+# subpath would break. Served on its own port with an "Open Web UI" button.
+webui: "http://[HOST]:[PORT:8128]/"
+ports:
+  8128/tcp: 8128
+ports_description:
+  8128/tcp: Beestat web app
+options:
+  # Beestat uses ONE base URL for both the browser's ecobee-login redirect and
+  # server-to-server calls, so it must resolve from both your browser and this
+  # add-on's container. The host's LAN IP satisfies both; homeassistant.local
+  # may not resolve inside add-on containers, so prefer the IP if login stalls.
+  bridge_url: http://homeassistant.local:8127
+  # The URL you use in your browser to open beestat (host + the 8128 mapping).
+  # Used for session cookies and as the ecobee login redirect target.
+  app_url: http://homeassistant.local:8128
+schema:
+  bridge_url: url
+  app_url: url

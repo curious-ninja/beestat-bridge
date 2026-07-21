@@ -1,7 +1,9 @@
 __pycache__/
 *.pyc
 .venv/
-config.yaml
+# Only the user runtime config at the repo root - NOT the add-on manifests
+# (beestat/config.yaml, beestat_bridge/config.yaml), which MUST be committed.
+/config.yaml
 data/
 *.sqlite3
 .pytest_cache/
