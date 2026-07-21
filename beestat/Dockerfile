@@ -13,8 +13,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && docker-php-ext-install mysqli \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-RUN git clone --depth 1 --branch "${BEESTAT_REF}" "${BEESTAT_REPO}" /var/www/html \
-    && rm -rf /var/www/html/.git
+# The php base image already ships /var/www/html (non-empty), so clone to a
+# temp dir and copy the contents into the existing web root.
+RUN git clone --depth 1 --branch "${BEESTAT_REF}" "${BEESTAT_REPO}" /tmp/beestat \
+    && cp -a /tmp/beestat/. /var/www/html/ \
+    && rm -rf /tmp/beestat /var/www/html/.git
 
 COPY rootfs/nginx.conf /etc/nginx/nginx.conf
 COPY rootfs/run.sh /run.sh
