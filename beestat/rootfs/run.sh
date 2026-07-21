@@ -90,10 +90,15 @@ FLUSH PRIVILEGES;
 SQL
 
 if [ ! -f "${INIT_MARKER}" ]; then
-  log "importing schema (sanitizing upstream trailing-comma in api_user)"
-  # Upstream beestat.sql has a trailing comma before ) ENGINE in one table,
-  # which is a MySQL syntax error; strip it without touching the fork's copy.
+  log "importing schema (sanitizing for MariaDB)"
+  # beestat.sql is a MySQL 8 dump. Two things need fixing for MariaDB, done in
+  # the stream so the fork's copy is untouched:
+  #   1. a trailing comma before ) ENGINE in the api_user table (a syntax error);
+  #   2. the MySQL-8-only collation utf8mb4_0900_ai_ci (one table) -> a
+  #      MariaDB-supported utf8mb4 collation. Every other table already uses
+  #      MariaDB-compatible charsets/collations.
   perl -0777 -pe 's/,(\s*\n\s*\)\s*ENGINE)/$1/g' "${WWW}/api/beestat.sql" \
+    | sed 's/utf8mb4_0900_ai_ci/utf8mb4_unicode_ci/g' \
     | mariadb --socket=/run/mysqld/mysqld.sock beestat
   # Seed the two API users beestat expects (frontend + ecobee-callback keys).
   mariadb --socket=/run/mysqld/mysqld.sock beestat <<SQL
