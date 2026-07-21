@@ -25,16 +25,36 @@ Design principles (agreed upfront):
   the archive + live overlay rather than fabricating data.
 - **No classifiers.** Equipment columns are real measurements or null.
 
+## Installation on Home Assistant (the intended path — no CLI)
+
+1. Settings → Add-ons → Add-on Store → ⋮ → Repositories → add this repo's URL.
+2. Install **Beestat Bridge**. Fill in the Configuration tab (thermostat
+   serial + climate entity, system type). Start it.
+3. Open **Beestat Bridge** in the HA sidebar and log in with your ecobee
+   account (MFA supported). Done — the bridge is connected, archiving, and
+   recording.
+
+Everything is done through the UI: configuration via the app's Configuration
+tab, ecobee login and mode switching via the sidebar page. The setup page and
+admin endpoints refuse direct network access when running as an HA app — they
+are only reachable through the authenticated HA sidebar (Ingress).
+
+The **Beestat** app itself (PHP + MySQL + sync cron, pre-pointed at the
+bridge) will be the second app in this repository — not built yet.
+
 ## Status
 
-Scaffolding. Working: config loading, SQLite store, bridge token minting,
-facade endpoints, cloud passthrough (given a valid ecobee refresh token),
-HA polling recorder, local thermostat serving with snapshot overlay.
+Working: facade endpoints, bridge token minting, interactive ecobee consumer
+login (Auth0 universal login + PKCE, ported from Apache-2.0
+[ha-ecobee](https://github.com/pjordanandrsn/ha-ecobee) — see NOTICE), cloud
+passthrough with archive tee, HA polling recorder, local serving with
+snapshot overlay, mode switching via UI / config / HA `input_select`,
+Ingress setup page.
 
 TODO (tracked in code with `TODO(bridge)` markers):
 
-- Interactive ecobee consumer login (Auth0 PKCE / pyecobee) — for now bootstrap
-  by POSTing a refresh token to `/admin/ecobee/tokens`.
+- Validate the login flow against the real Auth0 tenant (it is faithful to
+  ha-ecobee's implementation but has only been exercised against mocks).
 - `runtimeReport` value scaling verification against archived real responses.
 - Equipment-seconds integration from ESPHome binary sensor history.
 - Beestat HA app (second add-on folder) and published multi-arch images.
@@ -47,19 +67,14 @@ TODO (tracked in code with `TODO(bridge)` markers):
     docker-compose.yml    Non-HA deployment method
     config.example.yaml   All settings, documented
 
-## Development quickstart
+## For developers only (not needed on Home Assistant)
 
     pip install -r requirements.txt
     cp config.example.yaml config.yaml   # edit
     python -m beestat_bridge
-    # facade now on http://localhost:8127
+    # facade + setup page on http://localhost:8127
 
 Point the beestat fork's `ecobee_api_base_url` setting at the bridge, e.g.
-`http://localhost:8127`.
-
-To bootstrap cloud mode before interactive login exists:
-
-    curl -X POST localhost:8127/admin/ecobee/tokens \
-      -H 'Content-Type: application/json' \
-      -d '{"refresh_token": "<token obtained elsewhere>"}'
+`http://localhost:8127`. Outside HA there is no Ingress, so the setup page is
+open on the port — treat the LAN accordingly.
 

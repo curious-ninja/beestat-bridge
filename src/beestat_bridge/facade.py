@@ -18,9 +18,14 @@ from typing import Any
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Form, Query, Request
-from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+)
 
-from . import tokens
+from . import ecobee_auth, tokens, ui
 from .sources.cloud import CloudAuthDead
 from .sources.local import status_envelope
 
@@ -176,8 +181,7 @@ async def admin_set_mode(request: Request) -> dict[str, Any]:
 
 @router.post("/admin/ecobee/tokens")
 async def admin_set_ecobee_tokens(request: Request) -> dict[str, Any]:
-    """Bootstrap cloud auth until interactive login lands.
-    TODO(bridge): replace with an onboarding page doing the consumer login."""
+    """Escape hatch: store a refresh token obtained elsewhere."""
     context = _context(request)
     payload = await request.json()
     if not payload.get("refresh_token"):
@@ -188,3 +192,63 @@ async def admin_set_ecobee_tokens(request: Request) -> dict[str, Any]:
     )
     context.mode_manager.failed_over = False
     return {"stored": True}
+
+
+# -- setup UI + interactive ecobee login ------------------------------------
+
+@router.get("/")
+async def setup_page() -> HTMLResponse:
+    return HTMLResponse(ui.PAGE)
+
+
+async def _finish_login(context: Any, body: dict[str, str]) -> dict[str, Any]:
+    context.store.set_ecobee_tokens(
+        refresh_token=body["refresh_token"], access_token=body.get("access_token")
+    )
+    context.mode_manager.failed_over = False
+    if context.ecobee_login is not None:
+        await context.ecobee_login.close()
+        context.ecobee_login = None
+    logger.info("ecobee consumer login succeeded; cloud path connected")
+    return {"connected": True}
+
+
+@router.post("/admin/ecobee/login")
+async def admin_ecobee_login(request: Request) -> dict[str, Any]:
+    """Run the consumer login (Auth0 universal login + PKCE). Credentials are
+    used for this one exchange and never persisted."""
+    context = _context(request)
+    payload = await request.json()
+    email, password = payload.get("email"), payload.get("password")
+    if not email or not password:
+        return {"error": "email and password required"}
+
+    if context.ecobee_login is not None:  # Drop any stale half-done attempt.
+        await context.ecobee_login.close()
+    context.ecobee_login = ecobee_auth.EcobeeAuthenticator(
+        context.settings.ecobee_client_id
+    )
+    try:
+        body = await context.ecobee_login.start(email, password)
+    except ecobee_auth.EcobeeMfaRequired as challenge:
+        return {"mfa_required": True, "challenge_type": challenge.challenge_type}
+    except ecobee_auth.EcobeeAuthError as error:
+        await context.ecobee_login.close()
+        context.ecobee_login = None
+        return {"error": str(error)}
+    return await _finish_login(context, body)
+
+
+@router.post("/admin/ecobee/mfa")
+async def admin_ecobee_mfa(request: Request) -> dict[str, Any]:
+    context = _context(request)
+    payload = await request.json()
+    if context.ecobee_login is None:
+        return {"error": "no login in progress; start over"}
+    if not payload.get("code"):
+        return {"error": "code required"}
+    try:
+        body = await context.ecobee_login.submit_mfa(payload["code"])
+    except ecobee_auth.EcobeeAuthError as error:
+        return {"error": str(error)}
+    return await _finish_login(context, body)

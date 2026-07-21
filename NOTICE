@@ -1,0 +1,9 @@
+beestat-bridge
+
+The ecobee consumer login flow in src/beestat_bridge/ecobee_auth.py is
+ported from the ha-ecobee Home Assistant integration:
+
+  https://github.com/pjordanandrsn/ha-ecobee
+  Copyright (c) 2026 pjordanandrsn
+  Licensed under the Apache License, Version 2.0
+  http://www.apache.org/licenses/LICENSE-2.0

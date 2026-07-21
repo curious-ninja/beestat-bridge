@@ -118,3 +118,18 @@ def test_admin_mode_override(client):
     assert response.json()["effective_mode"] == "cloud"
     response = client.post("/admin/mode", json={"mode": None})
     assert response.json()["effective_mode"] == "local"
+
+
+def test_setup_page_served_at_root(client):
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "Beestat Bridge" in response.text
+    # Ingress compatibility: the page must not reference absolute paths.
+    assert "fetch('/" not in response.text
+
+
+def test_login_endpoint_validates_input(client):
+    response = client.post("/admin/ecobee/login", json={"email": "a@b.c"})
+    assert response.json() == {"error": "email and password required"}
+    response = client.post("/admin/ecobee/mfa", json={"code": "123456"})
+    assert response.json() == {"error": "no login in progress; start over"}

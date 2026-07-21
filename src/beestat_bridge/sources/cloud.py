@@ -5,9 +5,8 @@ response updates the per-identifier snapshot that local mode serves later.
 The archive is the part of this system that can never be recreated once
 ecobee access dies — it is written before the response is returned.
 
-TODO(bridge): interactive consumer login (Auth0 PKCE per ha-ecobee, or
-pyecobee's username/password flow as used by HA core >= 2026.3). Until then,
-bootstrap with POST /admin/ecobee/tokens {"refresh_token": "..."}.
+Auth: consumer tokens from the bridge UI login (ecobee_auth), refreshed via
+Auth0. Manual token paste (/admin/ecobee/tokens) remains as an escape hatch.
 """
 
 from __future__ import annotations
@@ -18,6 +17,7 @@ from typing import Any
 
 import httpx
 
+from .. import ecobee_auth
 from ..settings import Settings
 from ..store import Store
 
@@ -37,44 +37,23 @@ class CloudSource:
     async def _refresh(self) -> str:
         tokens = self._store.ecobee_tokens()
         if tokens is None:
-            raise CloudAuthDead("no ecobee tokens stored; bootstrap via /admin/ecobee/tokens")
+            raise CloudAuthDead("not connected to ecobee; log in via the bridge UI")
 
-        # TODO(bridge): confirm the refresh endpoint for consumer-grant tokens.
-        # Classic dev-key tokens refresh at {api}/token; Auth0-issued consumer
-        # tokens may refresh at {auth_domain}/oauth/token. Try classic first,
-        # fall back to Auth0 form.
-        for url, payload in (
-            (
-                f"{self._settings.ecobee_api_base_url}/token",
-                {
-                    "grant_type": "refresh_token",
-                    "refresh_token": tokens["refresh_token"],
-                    "client_id": self._settings.ecobee_client_id,
-                    "ecobee_type": "jwt",
-                },
-            ),
-            (
-                f"{self._settings.ecobee_auth_domain}/oauth/token",
-                {
-                    "grant_type": "refresh_token",
-                    "refresh_token": tokens["refresh_token"],
-                    "client_id": self._settings.ecobee_client_id,
-                },
-            ),
-        ):
-            try:
-                response = await self._client.post(url, data=payload)
-                body = response.json()
-            except (httpx.HTTPError, json.JSONDecodeError):
-                continue
-            if "access_token" in body:
-                self._store.set_ecobee_tokens(
-                    refresh_token=body.get("refresh_token", tokens["refresh_token"]),
-                    access_token=body["access_token"],
-                )
-                return body["access_token"]
+        try:
+            body = await ecobee_auth.refresh_tokens(
+                self._settings.ecobee_client_id, tokens["refresh_token"]
+            )
+        except ecobee_auth.EcobeeAuthError as error:
+            raise CloudAuthDead(str(error)) from error
+        except httpx.HTTPError as error:
+            # Network trouble is not auth death; surface as a transient error.
+            raise RuntimeError(f"ecobee refresh unreachable: {error}") from error
 
-        raise CloudAuthDead("ecobee token refresh failed on all known endpoints")
+        self._store.set_ecobee_tokens(
+            refresh_token=body.get("refresh_token", tokens["refresh_token"]),
+            access_token=body["access_token"],
+        )
+        return body["access_token"]
 
     async def _request(self, endpoint: str, body: dict[str, Any], retry: bool = True) -> str:
         tokens = self._store.ecobee_tokens()
