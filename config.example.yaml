@@ -1,0 +1,59 @@
+# beestat-bridge configuration.
+#
+# When running as a Home Assistant app, these options come from the app's
+# Configuration tab (/data/options.json) instead and HA API access is
+# automatic via the Supervisor; this file is for docker-compose / bare runs.
+
+# cloud: pass through to the real ecobee API (and archive everything).
+# local: serve from Home Assistant + the local archive. No ecobee dependency.
+mode: cloud
+
+# When true, persistent cloud auth failure flips serving to local
+# automatically and fires a Home Assistant notification. Manual mode wins.
+auto_failover: false
+
+port: 8127
+
+home_assistant:
+  # Ignored when running as an HA app (SUPERVISOR_TOKEN is auto-detected).
+  url: http://homeassistant.local:8123
+  token: ""
+  # Recorder poll interval, seconds. Samples aggregate into ecobee-style
+  # 5-minute buckets on read.
+  poll_interval: 60
+  # Optional input_select entity watched for runtime mode switching from an
+  # HA dashboard. Options must be: cloud, local.
+  mode_entity: null
+
+ecobee:
+  # ecobee's public web-app client id (the route ha-ecobee uses). Only needed
+  # for cloud mode.
+  client_id: 183eORFPlXyz9BbDZwqexHPBQoVjgadh
+  auth_domain: https://auth.ecobee.com
+  api_base_url: https://api.ecobee.com
+
+# Entity used for outdoorTemp in local mode (weather.* or sensor.*).
+outdoor_temperature: weather.home
+
+thermostats:
+  - # The ecobee serial number == ecobee API "identifier" == the serial the
+    # HomeKit integration reports. Beestat adds thermostats by this value.
+    serial: "123456789012"
+    homekit_entity: climate.my_ecobee
+    # Drives the unambiguous hvac_action -> runtime column mapping in local
+    # mode. One of: furnace, ac_furnace, heat_pump, heat_pump_electric_aux,
+    # heat_pump_dual_fuel.
+    system_type: heat_pump_electric_aux
+    # Allow deterministic hvac_action-derived columns where the system type
+    # makes them unambiguous (e.g. single-stage cooling -> compCool1).
+    # Ambiguous columns (heat pump comp-vs-aux, stages) are NEVER derived:
+    # wire sensors below, or null.
+    hvac_action_mapping: true
+    # Future ESPHome 24VAC monitor: fill these with binary_sensor entity ids
+    # and the columns switch from derived/null to measured. No code changes.
+    equipment_sources:
+      comp_stage_1: null   # Y1
+      comp_stage_2: null   # Y2
+      aux_commanded: null  # thermostat W leg (CT-sensed) -> auxHeat1
+      aux_defrost: null    # defrost board W leg -> local-only extra column
+      fan: null            # G
