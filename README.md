@@ -82,7 +82,8 @@ TODO (tracked in code with `TODO(bridge)` markers):
                           (PHP + MariaDB + nginx; builds from the fork)
     repository.yaml       Makes this repo installable as an HA app repository
     docker-compose.yml    Non-HA deployment (both services)
-    config.example.yaml   All bridge settings, documented
+    bridge.example.yaml   All bridge settings, documented (NOT named config.*
+                          so the HA Supervisor doesn't parse it as an add-on)
 
 The **beestat** app image is built from the companion fork
 (`curious-ninja/beestat-app`, branch `claude/beestat-home-assistant-m4qbve`),
@@ -94,7 +95,7 @@ beestat in `dev` mode so no JavaScript build step is needed. Override the
 ## For developers only (not needed on Home Assistant)
 
     pip install -r requirements.txt
-    cp config.example.yaml config.yaml   # edit
+    cp bridge.example.yaml config.yaml   # edit
     python -m beestat_bridge
     # facade + setup page on http://localhost:8127
 
