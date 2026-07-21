@@ -14,8 +14,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # The php base image already ships /var/www/html (non-empty), so clone to a
-# temp dir and copy the contents into the existing web root.
-RUN git clone --depth 1 --branch "${BEESTAT_REF}" "${BEESTAT_REPO}" /tmp/beestat \
+# temp dir and copy the contents into the existing web root. BUILD_VERSION
+# (passed by the Supervisor, = the add-on version) is referenced here so that
+# bumping the add-on version busts this layer's cache and re-clones the fork,
+# picking up new fork commits.
+ARG BUILD_VERSION=dev
+RUN echo "beestat add-on ${BUILD_VERSION}" \
+    && git clone --depth 1 --branch "${BEESTAT_REF}" "${BEESTAT_REPO}" /tmp/beestat \
     && cp -a /tmp/beestat/. /var/www/html/ \
     && rm -rf /tmp/beestat /var/www/html/.git
 
