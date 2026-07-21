@@ -25,7 +25,7 @@ from fastapi.responses import (
     RedirectResponse,
 )
 
-from . import ecobee_auth, settings as settings_module, tokens, ui
+from . import ecobee_auth, login, settings as settings_module, tokens, ui
 from .sources.cloud import CloudAuthDead
 from .sources.local import status_envelope
 
@@ -225,9 +225,7 @@ async def admin_ecobee_login(request: Request) -> dict[str, Any]:
 
     if context.ecobee_login is not None:  # Drop any stale half-done attempt.
         await context.ecobee_login.close()
-    context.ecobee_login = ecobee_auth.EcobeeAuthenticator(
-        context.settings.ecobee_client_id
-    )
+    context.ecobee_login = login.LoginSession(context.settings.ecobee_client_id)
     try:
         body = await context.ecobee_login.start(email, password)
     except ecobee_auth.EcobeeMfaRequired as challenge:

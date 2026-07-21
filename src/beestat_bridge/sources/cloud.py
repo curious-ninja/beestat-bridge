@@ -17,7 +17,7 @@ from typing import Any
 
 import httpx
 
-from .. import ecobee_auth
+from .. import ecobee_auth, login
 from ..settings import Settings
 from ..store import Store
 
@@ -40,7 +40,7 @@ class CloudSource:
             raise CloudAuthDead("not connected to ecobee; log in via the bridge UI")
 
         try:
-            body = await ecobee_auth.refresh_tokens(
+            body = await login.refresh(
                 self._settings.ecobee_client_id, tokens["refresh_token"]
             )
         except ecobee_auth.EcobeeAuthError as error:

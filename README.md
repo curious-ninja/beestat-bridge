@@ -46,11 +46,16 @@ bridge) will be the second app in this repository — not built yet.
 ## Status
 
 Working: facade endpoints, bridge token minting, interactive ecobee consumer
-login (Auth0 universal login + PKCE, ported from Apache-2.0
-[ha-ecobee](https://github.com/pjordanandrsn/ha-ecobee) — see NOTICE), cloud
+login and refresh — primary implementation is
+[python-ecobee-api](https://github.com/nkgilley/python-ecobee-api) (the same
+library Home Assistant core uses for keyless auth: when ecobee changes the
+flow, the fix ships upstream and is adopted here by bumping one pin), with an
+in-tree Auth0 PKCE flow as automatic fallback (ported from Apache-2.0
+[ha-ecobee](https://github.com/pjordanandrsn/ha-ecobee) — see NOTICE; wrong
+credentials never trigger the fallback, only breakage does). Plus: cloud
 passthrough with archive tee, HA polling recorder, local serving with
-snapshot overlay, mode switching via UI / config / HA `input_select`,
-Ingress setup page.
+snapshot overlay, mode switching and full configuration via the Ingress
+setup page, applied live.
 
 TODO (tracked in code with `TODO(bridge)` markers):
 

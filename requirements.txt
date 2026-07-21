@@ -3,7 +3,8 @@ uvicorn[standard]>=0.30
 httpx>=0.27
 PyYAML>=6.0
 python-multipart>=0.0.9
-# TODO(bridge): interactive consumer login. Same library HA core's ecobee
-# integration uses for keyless auth; pinned once the exact auth surface is
-# wired in ecobee_auth.py.
-# python-ecobee-api
+# Primary consumer-login/refresh implementation - the same library HA core's
+# ecobee integration uses for keyless auth. When ecobee changes the flow,
+# the fix ships here; adopt it by bumping this pin. The in-tree flow in
+# ecobee_auth.py is the automatic fallback.
+python-ecobee-api>=0.4.1
