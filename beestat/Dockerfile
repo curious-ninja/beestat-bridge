@@ -1,5 +1,6 @@
-ARG BUILD_FROM=php:8.2-fpm-bookworm
-FROM ${BUILD_FROM}
+# Base image pinned (not HA's BUILD_FROM) so the Debian/apt toolchain and the
+# bundled MariaDB/nginx/PHP are predictable across arches.
+FROM php:8.2-fpm-bookworm
 
 # The beestat application source is pulled from the companion fork at build
 # time (kept out of this repo so the fork stays independently updatable). Both
