@@ -28,20 +28,29 @@ Design principles (agreed upfront):
 ## Installation on Home Assistant (the intended path — no CLI)
 
 1. Settings → Add-ons → Add-on Store → ⋮ → Repositories → add this repo's URL.
-2. Install **Beestat Bridge** and start it.
-3. Open **Beestat Bridge** in the HA sidebar. Log in with your ecobee account
-   (MFA supported), add your thermostats (entity pickers filled from HA), and
-   you're done — connected, archiving, recording.
+   Two add-ons appear: **Beestat Bridge** and **Beestat**.
+2. Install **Beestat Bridge** and start it. Open it in the HA sidebar, log in
+   with your ecobee account (MFA supported), and add your thermostats (entity
+   pickers are filled from HA). It is now connected, archiving, and recording.
+3. Install **Beestat**. In its Configuration tab set `bridge_url` and `app_url`
+   to your host (see the reachability note below), then start it and click
+   **Open Web UI**. beestat loads, talks to the bridge instead of ecobee's
+   cloud, and your thermostats appear.
 
-Everything happens in the bridge's own sidebar page: ecobee login, thermostat
-and entity configuration, mode switching, status. Changes save to the
-bridge's storage and apply immediately — no restarts. The app's Configuration
-tab holds only the default data-source mode. The page and admin endpoints
-refuse direct network access when running as an HA app — they are only
-reachable through the authenticated HA sidebar (Ingress).
+The bridge's own sidebar page handles ecobee login, thermostat/entity
+configuration, mode switching, and status — changes apply immediately, no
+restarts. The bridge's page and admin endpoints are reachable only through the
+authenticated HA sidebar (Ingress). The beestat app is served on its own port
+(not Ingress: its frontend assumes root-path URLs), with an "Open Web UI"
+button.
 
-The **Beestat** app itself (PHP + MySQL + sync cron, pre-pointed at the
-bridge) will be the second app in this repository — not built yet.
+### Reachability note (important)
+
+beestat uses a single base URL both for your browser's ecobee-login redirect
+and for its own server-to-server calls, so that URL must resolve from **both**
+your browser and the add-on container. The host's **LAN IP** works for both
+(e.g. `http://192.168.1.50:8127` / `:8128`); `homeassistant.local` may not
+resolve inside add-on containers. If login or sync stalls, use the IP.
 
 ## Status
 
@@ -67,11 +76,20 @@ TODO (tracked in code with `TODO(bridge)` markers):
 
 ## Layout
 
-    src/beestat_bridge/   Python package (FastAPI service)
-    beestat_bridge/       Home Assistant app (add-on) manifest for the bridge
+    src/beestat_bridge/   Python package (FastAPI service — the bridge)
+    beestat_bridge/       Home Assistant app manifest for the bridge
+    beestat/              Home Assistant app for the beestat web app itself
+                          (PHP + MariaDB + nginx; builds from the fork)
     repository.yaml       Makes this repo installable as an HA app repository
-    docker-compose.yml    Non-HA deployment method
-    config.example.yaml   All settings, documented
+    docker-compose.yml    Non-HA deployment (both services)
+    config.example.yaml   All bridge settings, documented
+
+The **beestat** app image is built from the companion fork
+(`curious-ninja/beestat-app`, branch `claude/beestat-home-assistant-m4qbve`),
+which carries only two small self-host patches over upstream: a configurable
+`ecobee_api_base_url`, and a session-cookie fix for port/IP hosting. It runs
+beestat in `dev` mode so no JavaScript build step is needed. Override the
+`BEESTAT_REPO` / `BEESTAT_REF` build args to build a different fork.
 
 ## For developers only (not needed on Home Assistant)
 

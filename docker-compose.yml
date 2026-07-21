@@ -1,6 +1,6 @@
 # Method 1: docker-compose (any host).
 # Method 2 (Home Assistant OS): add this repo as an app repository instead —
-# see repository.yaml / beestat_bridge/.
+# see repository.yaml, beestat_bridge/ (bridge) and beestat/ (app).
 services:
   bridge:
     build: .
@@ -13,6 +13,27 @@ services:
     environment:
       BRIDGE_CONFIG: /app/config.yaml
 
-  # TODO(bridge): beestat app container (PHP + MySQL + sync cron) built from
-  # the companion fork with ecobee_api_base_url=http://bridge:8127. Next
-  # milestone.
+  beestat:
+    build:
+      context: ./beestat
+      # Override to build a different fork/branch of the beestat app.
+      args:
+        BEESTAT_REPO: https://github.com/curious-ninja/beestat-app
+        BEESTAT_REF: claude/beestat-home-assistant-m4qbve
+    restart: unless-stopped
+    depends_on:
+      - bridge
+    ports:
+      - "8128:8128"
+    volumes:
+      - ./beestat-data:/data
+    environment:
+      # Outside Home Assistant there is no options.json; the entrypoint reads
+      # these. IMPORTANT: beestat uses one base URL for BOTH the browser's
+      # ecobee-login redirect AND server-to-server token/data calls, so it must
+      # resolve from both places. A docker-internal name (bridge:8127) is not
+      # browser-reachable; localhost is not reachable from inside this
+      # container. Use the host's LAN IP for both — set BEESTAT_HOST_IP:
+      #   BEESTAT_HOST_IP=192.168.1.50 docker compose up
+      BRIDGE_URL_ENV: http://${BEESTAT_HOST_IP:-localhost}:8127
+      APP_URL_ENV: http://${BEESTAT_HOST_IP:-localhost}:8128

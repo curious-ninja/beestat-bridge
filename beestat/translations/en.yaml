@@ -1,0 +1,14 @@
+configuration:
+  bridge_url:
+    name: Bridge URL
+    description: >-
+      Where to reach the Beestat Bridge add-on. It exposes port 8127 on the
+      host; use the host's name or IP (e.g. http://homeassistant.local:8127 or
+      http://192.168.1.x:8127). Must be reachable from your browser and from
+      this add-on.
+  app_url:
+    name: App URL
+    description: >-
+      The URL you use in your browser to open beestat — the host plus this
+      add-on's 8128 port mapping. Used for session cookies and the ecobee
+      login redirect. Use the same host form as the Bridge URL.
