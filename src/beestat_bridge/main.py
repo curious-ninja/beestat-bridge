@@ -21,8 +21,11 @@ from .store import Store
 
 logger = logging.getLogger(__name__)
 
-# Requests proxied by HA Ingress arrive from the Supervisor's fixed address.
-INGRESS_PROXY_IP = "172.30.32.2"
+# HA Ingress stamps every proxied request with this header (the app's base
+# path under the Supervisor). Its presence is the reliable signal that a
+# request came through the authenticated HA sidebar, regardless of the
+# Supervisor's container IP.
+INGRESS_HEADER = "x-ingress-path"
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -86,16 +89,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def guard_admin(request, call_next):
         # As an HA app, the setup page and /admin/* (mode switching, ecobee
         # credentials) are reachable ONLY through HA Ingress — which
-        # authenticates the user and always originates from the Supervisor
-        # proxy. The facade endpoints stay open: beestat calls them
-        # server-to-server on the exposed port. Outside HA (docker-compose)
-        # there is no Supervisor and the LAN is trusted, as documented.
+        # authenticates the user and stamps the X-Ingress-Path header. The
+        # facade endpoints stay open: beestat calls them server-to-server on
+        # the exposed port. Outside HA (docker-compose) there is no Supervisor
+        # token and the LAN is trusted, as documented.
         path = request.url.path
         if (
             (path == "/" or path.startswith("/admin"))
             and settings.supervisor_token is not None
-            and request.client is not None
-            and request.client.host != INGRESS_PROXY_IP
+            and INGRESS_HEADER not in request.headers
         ):
             return JSONResponse(
                 {"error": "open the bridge from the Home Assistant sidebar"},

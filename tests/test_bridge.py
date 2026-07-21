@@ -188,3 +188,18 @@ def test_ha_entities_endpoint_degrades_without_ha(client):
     assert client.get("/admin/ha/entities").json() == {
         "climate": [], "binary_sensor": [], "outdoor": []
     }
+
+
+def test_ingress_guard_blocks_admin_without_header(tmp_path, monkeypatch):
+    # As an HA app (SUPERVISOR_TOKEN present), the UI/admin require the
+    # X-Ingress-Path header; facade endpoints stay open.
+    monkeypatch.setenv("SUPERVISOR_TOKEN", "test-token")
+    settings = Settings(mode="local", data_dir=tmp_path)
+    with TestClient(create_app(settings)) as guarded:
+        assert guarded.get("/").status_code == 403
+        assert guarded.get("/admin/status").status_code == 403
+        # With the Ingress header, the UI is reachable.
+        assert guarded.get("/", headers={"X-Ingress-Path": "/x"}).status_code == 200
+        assert guarded.get("/admin/status", headers={"X-Ingress-Path": "/x"}).status_code == 200
+        # Facade token endpoint is never guarded (beestat calls it directly).
+        assert guarded.post("/token", data={"grant_type": "refresh_token"}).status_code == 200
