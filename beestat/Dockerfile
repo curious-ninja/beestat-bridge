@@ -1,13 +1,9 @@
 # Base image pinned (not HA's BUILD_FROM) so the Debian/apt toolchain, PHP, and
-# nginx are predictable across arches. PHP 8.1 is REQUIRED, not incidental:
-# beestat/cora run with error_reporting(-1) and an error handler that die()s on
-# ANY error -- and PHP invokes a user error handler regardless of the reporting
-# level, so it cannot be masked. cora relies on dynamic properties (e.g.
-# request::$total_time), and creating a dynamic property is E_DEPRECATED starting
-# in PHP 8.2. On 8.2+ that deprecation fires at the top of the shutdown handler
-# and die()s before the response is ever emitted -> blank 200. The app uses 8.0+
-# union return types, so upstream targets 8.0-8.1; 8.1 is the clean match.
-FROM php:8.1-fpm-bookworm
+# nginx are predictable across arches. Current, supported PHP: the fork patches
+# cora so deprecation notices (e.g. dynamic-property creation, deprecated in 8.2)
+# are logged instead of treated as fatal, so it runs cleanly on modern PHP rather
+# than being pinned to end-of-life 8.1.
+FROM php:8.3-fpm-bookworm
 
 # The beestat application source is pulled from the companion fork at build
 # time (kept out of this repo so the fork stays independently updatable). Both

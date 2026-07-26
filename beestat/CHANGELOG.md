@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0
+
+- Use current PHP 8.3 instead of the end-of-life 8.1 pin. The fork now patches
+  cora so deprecation notices (e.g. dynamic-property creation, deprecated in PHP
+  8.2) are logged and non-fatal rather than crashing the request, so beestat runs
+  on modern, supported PHP and survives future upstream/PHP updates.
+
 ## 0.2.2
 
 - Use PHP 8.1 (was 8.2). cora dies on any error, and creating a dynamic property
