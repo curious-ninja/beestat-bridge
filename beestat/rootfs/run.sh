@@ -131,10 +131,15 @@ SQL
 fi
 
 # --- PHP-FPM + nginx -------------------------------------------------------
+# Run php-fpm in the FOREGROUND (backgrounded with &) rather than daemonized
+# (-D): daemonizing detaches worker stderr, which swallows PHP fatals. Keeping
+# it attached routes worker output (catch_workers_output) to this script's
+# stderr, i.e. the add-on Log tab, so any uncaught error is visible.
 log "starting php-fpm"
-php-fpm -D
+php-fpm --nodaemonize --force-stderr &
+FPM_PID=$!
 log "starting nginx on :8128"
 nginx &
 NGINX_PID=$!
-# Wait on either service; trap handles clean shutdown.
-wait -n "${DB_PID}" "${NGINX_PID}"
+# Wait on any service; trap handles clean shutdown.
+wait -n "${DB_PID}" "${FPM_PID}" "${NGINX_PID}"
