@@ -79,7 +79,7 @@ TODO (tracked in code with `TODO(bridge)` markers):
     src/beestat_bridge/   Python package (FastAPI service — the bridge)
     beestat_bridge/       Home Assistant app manifest for the bridge
     beestat/              Home Assistant app for the beestat web app itself
-                          (PHP + MariaDB + nginx; builds from the fork)
+                          (PHP + MySQL 8 (Percona) + nginx; builds from the fork)
     repository.yaml       Makes this repo installable as an HA app repository
     docker-compose.yml    Non-HA deployment (both services)
     bridge.example.yaml   All bridge settings, documented (NOT named config.*
