@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1
+
+- Force beestat's server-to-server ecobee/bridge cURL calls over IPv4
+  (external_api_ipv4_only). Inside the container the bridge's mDNS hostname could
+  resolve to an unreachable IPv6 address, so the token exchange failed with
+  "connection reset by peer". This removes the need to hardcode the host's IP in
+  bridge_url — the hostname now works.
+
 ## 0.3.0
 
 - Use current PHP 8.3 instead of the end-of-life 8.1 pin. The fork now patches

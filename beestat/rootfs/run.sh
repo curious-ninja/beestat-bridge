@@ -42,6 +42,7 @@ sed -i \
   -e "s|'ecobee_redirect_uri' => ''|'ecobee_redirect_uri' => '${APP_URL}/api/ecobee_initialize.php'|" \
   -e "s|'beestat_root_uri' => ''|'beestat_root_uri' => '${APP_URL}/'|" \
   -e "s|'ecobee_api_base_url' => 'https://api.ecobee.com'|'ecobee_api_base_url' => '${BRIDGE_URL}'|" \
+  -e "s|'external_api_ipv4_only' => false|'external_api_ipv4_only' => true|" \
   -e "s|'database_host' => ''|'database_host' => '127.0.0.1'|" \
   -e "s|'database_username' => ''|'database_username' => 'beestat'|" \
   -e "s|'database_password' => ''|'database_password' => '${DB_PASSWORD}'|" \
