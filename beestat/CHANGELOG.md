@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2
+
+- Use PHP 8.1 (was 8.2). cora dies on any error, and creating a dynamic property
+  (which cora does, e.g. request::$total_time) is deprecated in PHP 8.2+, which
+  made the shutdown handler die before emitting the response -> blank 200 on
+  every API call. PHP 8.1 matches what upstream targets.
+
 ## 0.2.1
 
 - Run php-fpm in the foreground so PHP fatals surface in the add-on Log tab
