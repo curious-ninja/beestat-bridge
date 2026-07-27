@@ -149,6 +149,81 @@ def test_local_remote_sensors_from_store(tmp_path):
     store.close()
 
 
+def test_local_sensors_prefer_official_names_and_in_use(tmp_path):
+    """When a cloud snapshot exists, remoteSensors borrow the ecobee-official
+    name and inUse flag instead of the (thermostat-prefixed) HomeKit name."""
+    import time
+
+    from beestat_bridge.sources.local import LocalSource
+    from beestat_bridge.store import Store
+
+    settings = Settings(
+        mode="local",
+        data_dir=tmp_path,
+        thermostats=[Thermostat(serial="123456789012", homekit_entity="climate.test")],
+    )
+    store = Store(settings.db_path)
+    # A prior cloud sync recorded the official sensor names / inUse.
+    store.upsert_snapshot(
+        "123456789012",
+        {
+            "identifier": "123456789012",
+            "name": "Upstairs",
+            "remoteSensors": [
+                {"id": "ei:0", "name": "Upstairs", "type": "thermostat", "inUse": True},
+                {"id": "rs:100", "name": "Bedroom", "type": "ecobee3_remote_sensor",
+                 "inUse": False},
+            ],
+        },
+    )
+    ts = int(time.time())
+    store.insert_sample("123456789012", ts, {"temperature": 72.4, "humidity": 45})
+    # HomeKit prefixes the thermostat name onto the sensor's device name.
+    store.upsert_sensor_meta(
+        "123456789012", "rs:abc", "Upstairs Bedroom", "ecobee3_remote_sensor"
+    )
+    store.insert_sensor_sample("123456789012", "rs:abc", ts, {"temperature": 70.1})
+
+    result = json.loads(
+        LocalSource(settings, store).thermostat({"selection": {"selectionType": "registered"}})
+    )
+    by_id = {s["id"]: s for s in result["thermostatList"][0]["remoteSensors"]}
+    # The HomeKit "Upstairs Bedroom" resolves to the official "Bedroom", inUse false.
+    assert by_id["rs:abc"]["name"] == "Bedroom"
+    assert by_id["rs:abc"]["inUse"] is False
+    store.close()
+
+
+def test_local_sensors_fall_back_to_ha_names_without_snapshot(tmp_path):
+    """With no cloud snapshot (never connected), keep the Home Assistant name and
+    default inUse to True."""
+    import time
+
+    from beestat_bridge.sources.local import LocalSource
+    from beestat_bridge.store import Store
+
+    settings = Settings(
+        mode="local",
+        data_dir=tmp_path,
+        thermostats=[Thermostat(serial="123456789012", homekit_entity="climate.test")],
+    )
+    store = Store(settings.db_path)
+    ts = int(time.time())
+    store.insert_sample("123456789012", ts, {"temperature": 72.4})
+    store.upsert_sensor_meta(
+        "123456789012", "rs:abc", "Upstairs Bedroom", "ecobee3_remote_sensor"
+    )
+    store.insert_sensor_sample("123456789012", "rs:abc", ts, {"temperature": 70.1})
+
+    result = json.loads(
+        LocalSource(settings, store).thermostat({"selection": {"selectionType": "registered"}})
+    )
+    by_id = {s["id"]: s for s in result["thermostatList"][0]["remoteSensors"]}
+    assert by_id["rs:abc"]["name"] == "Upstairs Bedroom"
+    assert by_id["rs:abc"]["inUse"] is True
+    store.close()
+
+
 def test_local_runtime_report_sensor_list(tmp_path):
     """runtimeReport sensorList: '<sensor_id>:<capability_id>' columns (temp id 1,
     occupancy id 3), CSV data rows with temperature in degrees and occupancy 1/0."""

@@ -488,9 +488,10 @@ async function loadThermostatStatus() {
         const dot = s.occupancy === true ? ' occupied' : '';
         const temp = s.temperature != null
           ? '<span class="live-temp">' + fmtTemp(s.temperature) + '</span>' : '—';
+        const idle = s.in_use === false ? ' · not in use' : '';
         chip.innerHTML =
           '<span class="sensor-name"><span class="dot' + dot + '"></span>' + s.name + '</span>' +
-          '<span class="sensor-stat">' + temp + (occ ? ' · ' + occ : '') + '</span>';
+          '<span class="sensor-stat">' + temp + (occ ? ' · ' + occ : '') + idle + '</span>';
         list.appendChild(chip);
       }
       sensorsDiv.appendChild(list);

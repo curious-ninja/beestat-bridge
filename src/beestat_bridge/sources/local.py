@@ -171,6 +171,72 @@ class LocalSource:
     def _capability(type_: str, value: Any) -> dict[str, str]:
         return {"id": CAPABILITY_ID[type_], "type": type_, "value": str(value)}
 
+    @staticmethod
+    def _normalize_name(name: str) -> str:
+        return "".join(ch for ch in (name or "").lower() if ch.isalnum())
+
+    def _stat_prefix(self, serial: str, fallback: str = "") -> str:
+        """The thermostat's HA/HomeKit device name — HomeKit prefixes each remote
+        sensor's name with it (e.g. "Upstairs Bedroom"), which we strip so local
+        names line up with ecobee's ("Bedroom")."""
+        for meta in self._store.sensor_meta(serial):
+            if meta["sensor_id"] == "ei:0" and meta.get("name"):
+                return meta["name"]
+        snapshot = self._store.snapshot(serial) or {}
+        return snapshot.get("name") or fallback
+
+    def _strip_prefix(self, name: str, prefix: str) -> str:
+        if prefix and name.lower().startswith(prefix.lower()):
+            rest = name[len(prefix):].lstrip(" -_:")
+            if rest:
+                return rest
+        return name
+
+    def _official_sensors(self, serial: str) -> dict[str, dict[str, Any]]:
+        """Index of the thermostat's ecobee-official remote sensors from the last
+        cloud snapshot, keyed by "id:<id>" and "name:<normalized>", so local
+        readings can borrow the real name and inUse flag. Empty if this install
+        never synced from the cloud — callers then keep the Home Assistant name."""
+        snapshot = self._store.snapshot(serial) or {}
+        index: dict[str, dict[str, Any]] = {}
+        for sensor in snapshot.get("remoteSensors") or []:
+            entry = {"name": sensor.get("name"), "inUse": bool(sensor.get("inUse"))}
+            if sensor.get("id"):
+                index["id:" + str(sensor["id"])] = entry
+            if sensor.get("name"):
+                index["name:" + self._normalize_name(sensor["name"])] = entry
+        return index
+
+    def reconciled_sensor_names(self, serial: str) -> dict[str, tuple[str, bool]]:
+        """Public: each stored sensor_id -> (display name, inUse), preferring the
+        ecobee-official values. Used by the config UI so it names sensors the same
+        way beestat does."""
+        official = self._official_sensors(serial)
+        prefix = self._stat_prefix(serial)
+        return {
+            meta["sensor_id"]: self._reconcile_sensor(
+                meta["sensor_id"], meta["name"], prefix, official
+            )
+            for meta in self._store.sensor_meta(serial)
+        }
+
+    def _reconcile_sensor(
+        self, sensor_id: str, ha_name: str, prefix: str, official: dict[str, dict[str, Any]]
+    ) -> tuple[str, bool]:
+        """Prefer the ecobee-official name and inUse for a stored sensor, matching
+        by ecobee id or by name (with the thermostat prefix stripped). Falls back
+        to the Home Assistant name and inUse=True when there's no cloud match."""
+        ha_name = ha_name or sensor_id
+        keys = [
+            "id:" + sensor_id,
+            "name:" + self._normalize_name(self._strip_prefix(ha_name, prefix)),
+            "name:" + self._normalize_name(ha_name),
+        ]
+        match = next((official[k] for k in keys if k in official), None)
+        if match:
+            return (match.get("name") or ha_name), match.get("inUse", True)
+        return ha_name, True
+
     def _remote_sensors(
         self, serial: str, api_thermostat: dict[str, Any], sample: dict[str, Any] | None
     ) -> list[dict[str, Any]]:
@@ -178,6 +244,8 @@ class LocalSource:
         encodes temperature in tenths of a degree and occupancy as "true"/"false"
         strings, all as strings — match that exactly so beestat parses it."""
         name = api_thermostat.get("name") or serial
+        official = self._official_sensors(serial)
+        prefix = self._stat_prefix(serial, fallback=name)
         sensors: list[dict[str, Any]] = []
 
         # Built-in thermostat sensor: temp/humidity come from the climate entity's
@@ -191,8 +259,10 @@ class LocalSource:
         if stat is not None and stat.get("occupancy") is not None:
             built.append(self._capability("occupancy", "true" if stat["occupancy"] else "false"))
         if built:
+            stat_name, stat_in_use = self._reconcile_sensor("ei:0", name, prefix, official)
             sensors.append(
-                {"id": "ei:0", "name": name, "type": "thermostat", "inUse": True, "capability": built}
+                {"id": "ei:0", "name": stat_name, "type": "thermostat",
+                 "inUse": stat_in_use, "capability": built}
             )
 
         # Auto-discovered remote sensors.
@@ -209,12 +279,15 @@ class LocalSource:
                 capability.append(
                     self._capability("occupancy", "true" if latest["occupancy"] else "false")
                 )
+            display_name, in_use = self._reconcile_sensor(
+                meta["sensor_id"], meta["name"], prefix, official
+            )
             sensors.append(
                 {
                     "id": meta["sensor_id"],
-                    "name": meta["name"] or meta["sensor_id"],
+                    "name": display_name,
                     "type": meta["type"],
-                    "inUse": True,
+                    "inUse": in_use,
                     "capability": capability,
                 }
             )
@@ -283,12 +356,16 @@ class LocalSource:
                     cells.append(("1" if any(occ) else "0") if occ else "")
             data.append(",".join(cells))
 
+        official = self._official_sensors(serial)
+        prefix = self._stat_prefix(serial)
         return {
             "thermostatIdentifier": serial,
             "sensors": [
                 {
                     "sensorId": meta["sensor_id"],
-                    "sensorName": meta["name"],
+                    "sensorName": self._reconcile_sensor(
+                        meta["sensor_id"], meta["name"], prefix, official
+                    )[0],
                     "sensorType": meta["type"],
                     "sensorUsage": "monitor",
                 }

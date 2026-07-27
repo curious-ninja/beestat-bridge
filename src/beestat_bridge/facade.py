@@ -28,6 +28,7 @@ from fastapi.responses import (
 
 from . import ecobee_auth, login, settings as settings_module, tokens, ui
 from .sources.cloud import CloudAuthDead
+from .sources.local import LocalSource
 from .sources.local import status_envelope
 
 logger = logging.getLogger(__name__)
@@ -306,14 +307,17 @@ async def admin_thermostats(request: Request) -> dict[str, Any]:
                 "setpoint_cool": latest.get("setpoint_cool"),
                 "ts": latest.get("ts"),
             }
+        names = LocalSource(context.settings, context.store).reconciled_sensor_names(serial)
         sensors = []
         for meta in context.store.sensor_meta(serial):
             if meta["sensor_id"] == "ei:0":  # the thermostat's own device
                 continue
             reading = context.store.latest_sensor_sample(serial, meta["sensor_id"])
+            display_name, in_use = names.get(meta["sensor_id"], (meta["name"], True))
             sensors.append(
                 {
-                    "name": meta["name"],
+                    "name": display_name,
+                    "in_use": in_use,
                     "type": meta["type"],
                     "temperature": reading.get("temperature") if reading else None,
                     "occupancy": None

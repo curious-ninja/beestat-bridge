@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.9
+
+- Sensor names now match beestat/ecobee. When a cloud snapshot exists, local
+  remoteSensors (and the runtimeReport sensorList) borrow the ecobee-official
+  sensor name instead of the HomeKit device name, which was prefixed with the
+  thermostat name ("Upstairs Bedroom") and overflowed beestat's Sensors section.
+  The HomeKit prefix is stripped and matched to the official name; only when the
+  install never connected to the cloud do we keep the Home Assistant name.
+- Fix the sensor "in use" flag in local mode. It was hard-coded true for every
+  sensor; it now reflects the ecobee-official inUse value from the last cloud
+  snapshot (falling back to true only when we have no cloud data to go on). The
+  bridge's own config UI shows "not in use" for idle sensors too.
+
 ## 0.5.8
 
 - Fix local-mode runtime sync dying with `Undefined array key "HVACmode"`.
