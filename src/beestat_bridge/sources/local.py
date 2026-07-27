@@ -13,9 +13,13 @@ Equipment runtime columns are measurements or blank, never guesses:
   3. otherwise blank.
 
 TODO(bridge): verify value scaling (temps, seconds) against archived real
-runtimeReport responses once the cloud tee has data to compare with.
-TODO(bridge): timezone handling — buckets currently use the container's local
-time; should honor the thermostat snapshot's location.timeZone.
+runtimeReport responses once the cloud tee has data to compare with. (The read
+side is confirmed against beestat's PHP — temps in tenths, occupancy 1/0 — but
+not yet checked empirically against a captured real response.)
+
+runtimeReport buckets are labeled in the thermostat's location.timeZone (from
+the cloud snapshot), falling back to the container's local time when no snapshot
+exists yet.
 """
 
 from __future__ import annotations
