@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.4
+
+- Sensor discovery: broaden entity classification (fall back to unit /
+  entity-id naming when a HomeKit sensor doesn't set a device_class), and add a
+  "Diagnose sensor discovery" button + /admin/discover endpoint that dumps the
+  raw device/entity topology HA reports, so an empty result is explainable
+  instead of silent.
+
 ## 0.5.3
 
 - Collapsible thermostat cards in the config UI (default collapsed). The

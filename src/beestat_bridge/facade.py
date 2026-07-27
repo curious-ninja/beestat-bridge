@@ -332,6 +332,27 @@ async def admin_thermostats(request: Request) -> dict[str, Any]:
     return {"thermostats": thermostats}
 
 
+@router.get("/admin/discover")
+async def admin_discover(request: Request) -> dict[str, Any]:
+    """Troubleshooting: for each thermostat, the raw device/entity topology the
+    discovery sees plus what it managed to classify. Used by the UI's Diagnose
+    button when no sensors show up."""
+    context = _context(request)
+    if context.ha is None:
+        return {"error": "Home Assistant is not connected"}
+    thermostats = []
+    for thermostat in context.settings.thermostats:
+        thermostats.append(
+            {
+                "serial": thermostat.serial,
+                "homekit_entity": thermostat.homekit_entity,
+                "classified": await context.ha.discover_sensors(thermostat.homekit_entity),
+                "raw": await context.ha.discover_sensors_debug(thermostat.homekit_entity),
+            }
+        )
+    return {"thermostats": thermostats}
+
+
 @router.get("/admin/ha/entities")
 async def admin_ha_entities(request: Request) -> dict[str, list[str]]:
     """Entity ids for the config UI's pickers, grouped by how they're used."""

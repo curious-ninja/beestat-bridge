@@ -181,6 +181,10 @@ PAGE = """<!doctype html>
   .sensor-stat { font-size: .82rem; color: var(--muted); }
   .sensor-stat .live-temp { color: var(--text); font-weight: 600; }
   details.equip { margin-top: 16px; }
+  .diag { margin-top: 14px; padding: 12px 14px; background: var(--field);
+          border: 1px solid var(--border); border-radius: 8px; font-size: .76rem;
+          white-space: pre-wrap; word-break: break-word; max-height: 420px;
+          overflow: auto; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -258,6 +262,8 @@ PAGE = """<!doctype html>
 
   <div id="thermostat-list"></div>
   <button onclick="addThermostat()">＋ Add thermostat</button>
+  <button onclick="diagnoseDiscovery()">Diagnose sensor discovery</button>
+  <pre id="discover-output" class="diag" hidden></pre>
 
   <div class="grid2">
     <label>Outdoor temperature entity
@@ -489,6 +495,16 @@ async function loadThermostatStatus() {
       }
       sensorsDiv.appendChild(list);
     }
+  }
+}
+async function diagnoseDiscovery() {
+  const out = document.getElementById('discover-output');
+  out.hidden = false;
+  out.textContent = 'Running discovery…';
+  try {
+    out.textContent = JSON.stringify(await api('admin/discover'), null, 2);
+  } catch (e) {
+    out.textContent = 'Failed: ' + e;
   }
 }
 function collectConfig() {

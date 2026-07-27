@@ -90,15 +90,25 @@ class HomeAssistant:
                 if state is None:
                     continue
                 domain = entity_id.split(".", 1)[0]
-                device_class = state.get("attributes", {}).get("device_class")
-                if domain == "sensor" and device_class == "temperature" and temperature is None:
+                attributes = state.get("attributes", {})
+                device_class = attributes.get("device_class")
+                unit = attributes.get("unit_of_measurement")
+                # Prefer device_class, but fall back to unit / entity-id naming
+                # since not every HomeKit sensor sets a device_class.
+                if domain == "sensor" and temperature is None and (
+                    device_class == "temperature"
+                    or unit in ("°F", "°C", "K")
+                    or "temperature" in entity_id
+                ):
                     temperature = entity_id
-                elif domain == "sensor" and device_class == "humidity" and humidity is None:
+                elif domain == "sensor" and humidity is None and (
+                    device_class == "humidity" or "humidity" in entity_id
+                ):
                     humidity = entity_id
-                elif (
-                    domain == "binary_sensor"
-                    and device_class in ("occupancy", "motion", "presence")
-                    and occupancy is None
+                elif domain == "binary_sensor" and occupancy is None and (
+                    device_class in ("occupancy", "motion", "presence")
+                    or "occupancy" in entity_id
+                    or "motion" in entity_id
                 ):
                     occupancy = entity_id
             is_stat = bool(device.get("is_stat"))
@@ -120,6 +130,39 @@ class HomeAssistant:
                 }
             )
         return sensors
+
+    async def discover_sensors_debug(self, climate_entity: str) -> dict[str, Any]:
+        """Raw discovery view for troubleshooting: the thermostat's device, its
+        via_device parent, and every entity on the related devices with its
+        domain / device_class / unit. Surfaces both 'found no related devices'
+        and 'found devices but nothing classifiable', plus any template error."""
+        template = (
+            "{%- set stat = device_id('" + climate_entity + "') -%}"
+            "{%- set parent = device_attr(stat, 'via_device_id') if stat else none -%}"
+            "{%- set ns = namespace(rows=[]) -%}"
+            "{%- for d in devices() -%}"
+            "{%- set vd = device_attr(d, 'via_device_id') -%}"
+            "{%- if stat and (d == stat or vd == stat or (parent and vd == parent)) -%}"
+            "{%- for e in device_entities(d) -%}"
+            "{%- set ns.rows = ns.rows + [{"
+            "'device_name': device_attr(d, 'name_by_user') or device_attr(d, 'name'),"
+            "'is_stat': d == stat, 'entity': e, 'domain': e.split('.')[0],"
+            "'device_class': state_attr(e, 'device_class'),"
+            "'unit': state_attr(e, 'unit_of_measurement')}] -%}"
+            "{%- endfor -%}"
+            "{%- endif -%}"
+            "{%- endfor -%}"
+            "{{ {'stat_device': stat, 'parent': parent, 'entities': ns.rows} | to_json }}"
+        )
+        try:
+            raw = await self.render_template(template)
+        except httpx.HTTPError as error:
+            return {"error": "template request failed: " + str(error)}
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            # HA renders template errors as text; return it so we can see it.
+            return {"error": "template did not return JSON", "raw": raw[:800]}
 
     async def notify(self, title: str, message: str) -> None:
         """Persistent notification; used e.g. on cloud auth death."""
