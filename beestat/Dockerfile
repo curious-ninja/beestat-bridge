@@ -53,7 +53,8 @@ RUN { \
       echo 'error_log = /proc/self/fd/2'; \
       echo 'error_reporting = E_ALL'; \
       echo 'zlib.output_compression = Off'; \
-      echo 'memory_limit = 256M'; \
+      echo 'max_execution_time = 3600'; \
+      echo 'memory_limit = 1024M'; \
     } > /usr/local/etc/php/conf.d/zz-beestat.ini \
     && { \
       echo '[www]'; \

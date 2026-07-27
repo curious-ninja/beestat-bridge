@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1
+
+- Let the initial history backfill actually finish. beestat syncs up to a year of
+  runtime in a single long request; it was dying on the 256M PHP memory limit
+  (OOM 500s) and nginx's 120s read timeout (504s), so it only crawled forward.
+  Raise PHP memory_limit to 1024M and max_execution_time, nginx
+  fastcgi_read_timeout, and the sync client timeout to 3600s. This is a one-time
+  cost during backfill; steady-state forward syncs are light.
+
 ## 0.5.0
 
 - Add a background sync (the cron beestat.io runs but a self-hosted install

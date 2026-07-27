@@ -23,7 +23,7 @@ source /data/secrets.env 2>/dev/null || true
 
 # $1 resource, $2 method, $3 session_key -> prints the HTTP status code.
 call() {
-  curl -s -o /dev/null -w "%{http_code}" --max-time 180 -G \
+  curl -s -o /dev/null -w "%{http_code}" --max-time 3600 -G \
     --data-urlencode "api_key=${BEESTAT_API_KEY:-}" \
     --data-urlencode "resource=$1" \
     --data-urlencode "method=$2" \
