@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from .facade import router
 from .ha import HomeAssistant, HomeAssistantError
 from .mode import ModeManager
-from .recorder import run_recorder
+from .recorder import run_recorder, run_snapshot_refresh
 from .settings import Settings, apply_editable_config, load_settings
 from .sources.cloud import CloudSource
 from .sources.local import LocalSource
@@ -67,6 +67,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             tasks.append(asyncio.create_task(run_recorder(settings, store, context.ha)))
             context.recorder_running = True
             tasks.append(asyncio.create_task(context.mode_manager.watch_ha_entity(context.ha)))
+        # Keep cloud snapshots fresh (sensor inUse, comfort, timeZone) even while
+        # serving local — independent of HA availability.
+        tasks.append(asyncio.create_task(run_snapshot_refresh(settings, store, context.cloud)))
         logger.info(
             "beestat-bridge up: mode=%s, thermostats=%d",
             context.mode_manager.effective_mode(),

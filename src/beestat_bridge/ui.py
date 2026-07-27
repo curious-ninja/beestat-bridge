@@ -165,6 +165,10 @@ PAGE = """<!doctype html>
   .t-live { font-size: .82rem; color: var(--muted); }
   .t-live .live-temp { color: var(--text); font-weight: 600; }
   .t-count { font-size: .76rem; color: var(--muted); white-space: nowrap; flex: none; }
+  .stale-badge { display: inline-block; font-size: .62rem; text-transform: uppercase;
+                 letter-spacing: .05em; font-weight: 700; padding: 1px 6px; border-radius: 6px;
+                 background: rgba(220, 160, 40, .16); color: #d9a441; vertical-align: middle;
+                 cursor: help; }
   .t-body { padding: 2px 16px 18px; }
   .t-sensors { margin-top: 16px; }
   .sensors-title { font-size: .7rem; text-transform: uppercase; letter-spacing: .07em;
@@ -466,9 +470,13 @@ async function loadThermostatStatus() {
       const parts = ['<span class="live-temp">' + fmtTemp(c.temperature) + '</span>'];
       if (c.humidity != null) { parts.push(Math.round(c.humidity) + '%'); }
       if (c.hvac_action && c.hvac_action !== 'off' && c.hvac_action !== 'idle') { parts.push(c.hvac_action); }
+      if (c.comfort) { parts.push(c.comfort); }
       live.innerHTML = parts.join(' · ');
     } else {
       live.textContent = 'no recent data';
+    }
+    if (status.cloud && status.cloud.stale) {
+      live.innerHTML += ' <span class="stale-badge" title="Cloud data (sensor in-use, comfort mode) hasn\'t refreshed in over 24h — hidden to avoid showing stale info">cloud stale</span>';
     }
     count.textContent = status.sensors.length
       ? status.sensors.length + ' sensor' + (status.sensors.length === 1 ? '' : 's')

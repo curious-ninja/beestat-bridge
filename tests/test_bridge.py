@@ -224,6 +224,98 @@ def test_local_sensors_fall_back_to_ha_names_without_snapshot(tmp_path):
     store.close()
 
 
+def test_snapshot_freshness_and_comfort(tmp_path):
+    """Comfort resolves from the snapshot's program; freshness flips to stale
+    once the snapshot is older than the threshold."""
+    import time
+
+    from beestat_bridge.sources.local import SNAPSHOT_STALE_SECONDS, LocalSource
+    from beestat_bridge.store import Store
+
+    settings = Settings(
+        mode="local",
+        data_dir=tmp_path,
+        thermostats=[Thermostat(serial="123456789012", homekit_entity="climate.test")],
+    )
+    store = Store(settings.db_path)
+    source = LocalSource(settings, store)
+
+    # No snapshot yet -> stale, comfort unknown.
+    assert source.snapshot_freshness("123456789012")["stale"] is True
+    assert source.current_comfort("123456789012") is None
+
+    store.upsert_snapshot(
+        "123456789012",
+        {
+            "identifier": "123456789012",
+            "program": {
+                "currentClimateRef": "sleep",
+                "climates": [
+                    {"climateRef": "home", "name": "Home"},
+                    {"climateRef": "sleep", "name": "Sleep"},
+                ],
+            },
+        },
+    )
+    assert source.snapshot_freshness("123456789012")["stale"] is False
+    assert source.current_comfort("123456789012") == "Sleep"
+
+    # Age the snapshot past the threshold -> stale.
+    store._conn.execute(
+        "UPDATE snapshots SET updated_at = ? WHERE identifier = ?",
+        (int(time.time()) - SNAPSHOT_STALE_SECONDS - 60, "123456789012"),
+    )
+    store._conn.commit()
+    assert source.snapshot_freshness("123456789012")["stale"] is True
+    store.close()
+
+
+def test_admin_thermostats_hides_stale_cloud_fields(client):
+    """/admin/thermostats surfaces comfort + inUse when the snapshot is fresh,
+    and hides both (with a stale flag) once it ages out."""
+    import time
+
+    context = client.app.state.context
+    store = context.store
+    ts = int(time.time())
+    store.insert_sample("123456789012", ts, {"temperature": 71.0, "humidity": 44})
+    store.upsert_sensor_meta("123456789012", "rs:abc", "Bedroom", "ecobee3_remote_sensor")
+    store.insert_sensor_sample("123456789012", "rs:abc", ts, {"temperature": 70.0})
+    store.upsert_snapshot(
+        "123456789012",
+        {
+            "identifier": "123456789012",
+            "name": "Upstairs",
+            "program": {
+                "currentClimateRef": "home",
+                "climates": [{"climateRef": "home", "name": "Home"}],
+            },
+            "remoteSensors": [
+                {"id": "rs:100", "name": "Bedroom", "type": "ecobee3_remote_sensor",
+                 "inUse": False},
+            ],
+        },
+    )
+
+    fresh = client.get("/admin/thermostats").json()["thermostats"][0]
+    assert fresh["cloud"]["stale"] is False
+    assert fresh["current"]["comfort"] == "Home"
+    assert fresh["sensors"][0]["in_use"] is False
+
+    # Age the snapshot out -> cloud-only fields hidden.
+    from beestat_bridge.sources.local import SNAPSHOT_STALE_SECONDS
+
+    store._conn.execute(
+        "UPDATE snapshots SET updated_at = ? WHERE identifier = ?",
+        (ts - SNAPSHOT_STALE_SECONDS - 60, "123456789012"),
+    )
+    store._conn.commit()
+    stale = client.get("/admin/thermostats").json()["thermostats"][0]
+    assert stale["cloud"]["stale"] is True
+    assert stale["current"]["comfort"] is None
+    assert stale["sensors"][0]["in_use"] is None
+
+
 def test_local_runtime_report_sensor_list(tmp_path):
     """runtimeReport sensorList: '<sensor_id>:<capability_id>' columns (temp id 1,
     occupancy id 3), CSV data rows with temperature in degrees and occupancy 1/0."""

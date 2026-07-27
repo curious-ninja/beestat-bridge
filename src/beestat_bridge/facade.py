@@ -307,7 +307,15 @@ async def admin_thermostats(request: Request) -> dict[str, Any]:
                 "setpoint_cool": latest.get("setpoint_cool"),
                 "ts": latest.get("ts"),
             }
-        names = LocalSource(context.settings, context.store).reconciled_sensor_names(serial)
+        local = LocalSource(context.settings, context.store)
+        names = local.reconciled_sensor_names(serial)
+        freshness = local.snapshot_freshness(serial)
+        stale = freshness["stale"]
+        # Comfort mode is cloud-only (HomeKit doesn't expose it); once the
+        # snapshot is stale we don't know it, so hide it rather than show frozen
+        # info. Same for each sensor's inUse.
+        if current is not None:
+            current["comfort"] = None if stale else local.current_comfort(serial)
         sensors = []
         for meta in context.store.sensor_meta(serial):
             if meta["sensor_id"] == "ei:0":  # the thermostat's own device
@@ -317,7 +325,7 @@ async def admin_thermostats(request: Request) -> dict[str, Any]:
             sensors.append(
                 {
                     "name": display_name,
-                    "in_use": in_use,
+                    "in_use": None if stale else in_use,
                     "type": meta["type"],
                     "temperature": reading.get("temperature") if reading else None,
                     "occupancy": None
@@ -331,6 +339,7 @@ async def admin_thermostats(request: Request) -> dict[str, Any]:
                 "homekit_entity": thermostat.homekit_entity,
                 "current": current,
                 "sensors": sensors,
+                "cloud": {"stale": stale, "age": freshness["age"]},
             }
         )
     return {"thermostats": thermostats}

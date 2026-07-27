@@ -27,6 +27,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import time
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -36,6 +37,11 @@ from ..store import Store
 logger = logging.getLogger(__name__)
 
 BUCKET_SECONDS = 300
+
+# Cloud-only fields (sensor inUse, current comfort) come from the last cloud
+# snapshot. If nothing has refreshed it in this long, treat it as dead so the
+# config UI can hide those values instead of showing frozen, possibly-false info.
+SNAPSHOT_STALE_SECONDS = 24 * 3600
 
 # Deterministic capability ids by type, so the thermostat object's remoteSensors
 # and the runtimeReport sensorList agree on the "<sensor_id>:<capability_id>"
@@ -206,6 +212,27 @@ class LocalSource:
             if sensor.get("name"):
                 index["name:" + self._normalize_name(sensor["name"])] = entry
         return index
+
+    def snapshot_freshness(self, serial: str) -> dict[str, Any]:
+        """Whether the cloud snapshot is fresh enough to trust its cloud-only
+        fields. `stale` is True when we've never synced or the last sync is older
+        than SNAPSHOT_STALE_SECONDS."""
+        updated_at = self._store.snapshot_updated_at(serial)
+        stale = updated_at is None or (int(time.time()) - updated_at) > SNAPSHOT_STALE_SECONDS
+        return {"updated_at": updated_at, "stale": stale, "age": (
+            None if updated_at is None else int(time.time()) - updated_at
+        )}
+
+    def current_comfort(self, serial: str) -> str | None:
+        """The thermostat's current comfort setting name (Home/Away/Sleep/…) from
+        the last cloud snapshot. This is an ecobee-cloud concept — HomeKit does
+        not expose it — so it's only as fresh as the snapshot. None if unknown."""
+        program = (self._store.snapshot(serial) or {}).get("program") or {}
+        ref = program.get("currentClimateRef")
+        for climate in program.get("climates") or []:
+            if climate.get("climateRef") == ref:
+                return climate.get("name")
+        return None
 
     def reconciled_sensor_names(self, serial: str) -> dict[str, tuple[str, bool]]:
         """Public: each stored sensor_id -> (display name, inUse), preferring the

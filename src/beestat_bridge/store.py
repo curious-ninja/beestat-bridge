@@ -184,6 +184,15 @@ class Store:
             ).fetchone()
             return json.loads(row["body"]) if row else None
 
+    def snapshot_updated_at(self, identifier: str) -> int | None:
+        """Unix time of the last snapshot write for this thermostat — our proxy
+        for cloud freshness (in local mode nothing refreshes it, so it ages)."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT updated_at FROM snapshots WHERE identifier = ?", (identifier,)
+            ).fetchone()
+            return row["updated_at"] if row else None
+
     def snapshot_identifiers(self) -> list[str]:
         with self._lock:
             rows = self._conn.execute("SELECT identifier FROM snapshots").fetchall()

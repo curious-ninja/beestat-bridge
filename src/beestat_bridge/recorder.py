@@ -15,9 +15,45 @@ from typing import Any
 
 from .ha import HomeAssistant
 from .settings import Settings, Thermostat
+from .sources.cloud import CloudAuthDead, CloudSource
 from .store import Store
 
 logger = logging.getLogger(__name__)
+
+# Even while serving local, refresh the cloud snapshot on this cadence so the
+# cloud-only fields beestat shows (sensor inUse, current comfort, location
+# timeZone) stay fresh. Comfortably under SNAPSHOT_STALE_SECONDS so a single
+# failed refresh doesn't trip the "stale" flag.
+SNAPSHOT_REFRESH_INTERVAL = 6 * 3600
+
+# Ask for exactly the cloud-only objects local mode can't derive from HA.
+_SNAPSHOT_REFRESH_BODY = {
+    "selection": {
+        "selectionType": "registered",
+        "selectionMatch": "",
+        "includeSensors": True,
+        "includeProgram": True,
+        "includeLocation": True,
+        "includeEquipmentStatus": True,
+        "includeSettings": True,
+    }
+}
+
+
+async def run_snapshot_refresh(settings: Settings, store: Store, cloud: CloudSource) -> None:
+    """Keep the per-thermostat cloud snapshot fresh so beestat's cloud-only
+    fields don't silently freeze while we serve local. Uses whatever ecobee
+    tokens exist; once they're gone the snapshot ages and the UI marks it
+    stale (the user opted to keep beestat showing last-known values)."""
+    while True:
+        try:
+            await cloud.thermostat(_SNAPSHOT_REFRESH_BODY)
+            logger.info("cloud snapshot refreshed")
+        except CloudAuthDead:
+            logger.debug("cloud snapshot refresh skipped: not connected to ecobee")
+        except Exception:  # Never let this loop die; it is best-effort.
+            logger.exception("cloud snapshot refresh failed")
+        await asyncio.sleep(SNAPSHOT_REFRESH_INTERVAL)
 
 
 def _float_or_none(value: Any) -> float | None:

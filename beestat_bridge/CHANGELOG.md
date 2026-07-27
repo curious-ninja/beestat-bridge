@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.0
+
+- Keep cloud-only data fresh while serving local. A new background task refreshes
+  each thermostat's cloud snapshot every 6 hours (sensor inUse, current comfort
+  setting, and location timeZone — none of which HomeKit exposes), using whatever
+  ecobee tokens exist. As long as cloud access lasts, these fields stop being
+  frozen at your last manual sync.
+- Mark cloud data stale after 24h without a successful refresh. The bridge's
+  config page now hides each sensor's "in use" flag and the thermostat's current
+  comfort mode once the snapshot ages out — instead of showing frozen,
+  possibly-false values — and shows a "cloud stale" badge. beestat itself keeps
+  displaying the last-known values (its UI has no "unknown" state); the bridge
+  page is the honest view of whether cloud data is still current.
+- Config page: thermostat cards now show the current comfort setting (when known)
+  alongside the live temperature/humidity/action.
+
 ## 0.5.9
 
 - Sensor names now match beestat/ecobee. When a cloud snapshot exists, local
