@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.7
+
+- Historical sensor graphs in local mode: the runtimeReport now includes a
+  sensorList built from recorded remote-sensor samples (per-sensor temperature
+  and occupancy, 5-minute buckets), so beestat's sensor history charts populate
+  from Home Assistant data. Capability ids are now deterministic so the
+  thermostat object's remoteSensors and the sensorList agree.
+
 ## 0.5.6
 
 - Fix sensor auto-discovery: HA's /api/template does not expose the `devices()`

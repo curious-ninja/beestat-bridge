@@ -149,6 +149,46 @@ def test_local_remote_sensors_from_store(tmp_path):
     store.close()
 
 
+def test_local_runtime_report_sensor_list(tmp_path):
+    """runtimeReport sensorList: '<sensor_id>:<capability_id>' columns (temp id 1,
+    occupancy id 3), CSV data rows with temperature in degrees and occupancy 1/0."""
+    import datetime as dt
+
+    from beestat_bridge.sources.local import LocalSource
+    from beestat_bridge.store import Store
+
+    settings = Settings(
+        mode="local",
+        data_dir=tmp_path,
+        thermostats=[Thermostat(serial="123456789012", homekit_entity="climate.test")],
+    )
+    store = Store(settings.db_path)
+    store.upsert_sensor_meta("123456789012", "rs:abc", "Bedroom", "ecobee3_remote_sensor")
+    date = "2026-07-20"
+    base = int(dt.datetime.strptime(date, "%Y-%m-%d").timestamp())
+    ts = base + 10 * 3600 + 130  # 10:02:10 local
+    store.insert_sensor_sample("123456789012", "rs:abc", ts, {"temperature": 70.5, "occupancy": True})
+
+    result = json.loads(
+        LocalSource(settings, store).runtime_report(
+            {
+                "selection": {"selectionType": "registered"},
+                "startDate": date, "startInterval": 0,
+                "endDate": date, "endInterval": 287,
+                "columns": "zoneAveTemp",
+            }
+        )
+    )
+    entry = result["sensorList"][0]
+    assert entry["columns"][:2] == ["date", "time"]
+    assert "rs:abc:1" in entry["columns"]  # temperature = capability id 1
+    assert "rs:abc:3" in entry["columns"]  # occupancy = capability id 3
+    assert entry["sensors"][0]["sensorId"] == "rs:abc"
+    temp_col = entry["columns"].index("rs:abc:1")
+    assert any(row.split(",")[temp_col] == "70.5" for row in entry["data"])
+    store.close()
+
+
 def test_admin_mode_override(client):
     assert client.get("/admin/status").json()["effective_mode"] == "local"
     response = client.post("/admin/mode", json={"mode": "cloud"})

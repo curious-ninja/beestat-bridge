@@ -277,6 +277,17 @@ class Store:
             )
             self._conn.commit()
 
+    def sensor_samples(
+        self, identifier: str, sensor_id: str, begin_ts: int, end_ts: int
+    ) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT ts, temperature, occupancy FROM sensor_samples "
+                "WHERE identifier = ? AND sensor_id = ? AND ts >= ? AND ts < ? ORDER BY ts",
+                (identifier, sensor_id, begin_ts, end_ts),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def latest_sensor_sample(self, identifier: str, sensor_id: str) -> dict[str, Any] | None:
         with self._lock:
             row = self._conn.execute(

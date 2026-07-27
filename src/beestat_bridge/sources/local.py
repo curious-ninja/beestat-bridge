@@ -16,7 +16,6 @@ TODO(bridge): verify value scaling (temps, seconds) against archived real
 runtimeReport responses once the cloud tee has data to compare with.
 TODO(bridge): timezone handling — buckets currently use the container's local
 time; should honor the thermostat snapshot's location.timeZone.
-TODO(bridge): sensorList from HomeKit remote-sensor entities.
 """
 
 from __future__ import annotations
@@ -32,6 +31,11 @@ from ..store import Store
 logger = logging.getLogger(__name__)
 
 BUCKET_SECONDS = 300
+
+# Deterministic capability ids by type, so the thermostat object's remoteSensors
+# and the runtimeReport sensorList agree on the "<sensor_id>:<capability_id>"
+# column keys beestat matches sensor history against.
+CAPABILITY_ID = {"temperature": "1", "humidity": "2", "occupancy": "3"}
 
 # The exact column set beestat requests (api/runtime.php).
 RUNTIME_COLUMNS = [
@@ -154,8 +158,8 @@ class LocalSource:
         )
 
     @staticmethod
-    def _capability(cid: int, type_: str, value: Any) -> dict[str, str]:
-        return {"id": str(cid), "type": type_, "value": str(value)}
+    def _capability(type_: str, value: Any) -> dict[str, str]:
+        return {"id": CAPABILITY_ID[type_], "type": type_, "value": str(value)}
 
     def _remote_sensors(
         self, serial: str, api_thermostat: dict[str, Any], sample: dict[str, Any] | None
@@ -169,16 +173,13 @@ class LocalSource:
         # Built-in thermostat sensor: temp/humidity come from the climate entity's
         # own sample; occupancy (if any) from the thermostat device's sensor.
         built: list[dict[str, str]] = []
-        cid = 1
         if sample is not None and sample.get("temperature") is not None:
-            built.append(self._capability(cid, "temperature", round(sample["temperature"] * 10)))
-            cid += 1
+            built.append(self._capability("temperature", round(sample["temperature"] * 10)))
         if sample is not None and sample.get("humidity") is not None:
-            built.append(self._capability(cid, "humidity", round(sample["humidity"])))
-            cid += 1
+            built.append(self._capability("humidity", round(sample["humidity"])))
         stat = self._store.latest_sensor_sample(serial, "ei:0")
         if stat is not None and stat.get("occupancy") is not None:
-            built.append(self._capability(cid, "occupancy", "true" if stat["occupancy"] else "false"))
+            built.append(self._capability("occupancy", "true" if stat["occupancy"] else "false"))
         if built:
             sensors.append(
                 {"id": "ei:0", "name": name, "type": "thermostat", "inUse": True, "capability": built}
@@ -190,16 +191,13 @@ class LocalSource:
                 continue
             latest = self._store.latest_sensor_sample(serial, meta["sensor_id"])
             capability: list[dict[str, str]] = []
-            cid = 1
             if latest is not None and latest.get("temperature") is not None:
-                capability.append(self._capability(cid, "temperature", round(latest["temperature"] * 10)))
-                cid += 1
+                capability.append(self._capability("temperature", round(latest["temperature"] * 10)))
             if latest is not None and latest.get("humidity") is not None:
-                capability.append(self._capability(cid, "humidity", round(latest["humidity"])))
-                cid += 1
+                capability.append(self._capability("humidity", round(latest["humidity"])))
             if latest is not None and latest.get("occupancy") is not None:
                 capability.append(
-                    self._capability(cid, "occupancy", "true" if latest["occupancy"] else "false")
+                    self._capability("occupancy", "true" if latest["occupancy"] else "false")
                 )
             sensors.append(
                 {
@@ -211,6 +209,69 @@ class LocalSource:
                 }
             )
         return sensors
+
+    def _sensor_list(self, serial: str, begin_ts: int, end_ts: int) -> dict[str, Any] | None:
+        """Build the runtimeReport sensorList for one thermostat from recorded
+        remote-sensor samples: columns "<sensor_id>:<capability_id>" (temperature
+        in degrees, ×10'd by beestat on store; occupancy 1/0), 5-minute buckets."""
+        metas = [m for m in self._store.sensor_meta(serial) if m["sensor_id"] != "ei:0"]
+        columns = ["date", "time"]
+        specs: list[tuple[str, str]] = []  # (sensor_id, capability_type)
+        buckets_by_sensor: dict[str, dict[int, list[dict[str, Any]]]] = {}
+        present_metas = []
+        for meta in metas:
+            sensor_id = meta["sensor_id"]
+            samples = self._store.sensor_samples(serial, sensor_id, begin_ts, end_ts)
+            if not samples:
+                continue
+            buckets: dict[int, list[dict[str, Any]]] = {}
+            has_occupancy = False
+            for sample in samples:
+                bucket = (sample["ts"] // BUCKET_SECONDS) * BUCKET_SECONDS
+                buckets.setdefault(bucket, []).append(sample)
+                if sample["occupancy"] is not None:
+                    has_occupancy = True
+            buckets_by_sensor[sensor_id] = buckets
+            present_metas.append(meta)
+            columns.append(sensor_id + ":" + CAPABILITY_ID["temperature"])
+            specs.append((sensor_id, "temperature"))
+            if has_occupancy:
+                columns.append(sensor_id + ":" + CAPABILITY_ID["occupancy"])
+                specs.append((sensor_id, "occupancy"))
+
+        if not specs:
+            return None
+
+        data = []
+        for bucket_start in range(
+            (begin_ts // BUCKET_SECONDS) * BUCKET_SECONDS, end_ts, BUCKET_SECONDS
+        ):
+            local = dt.datetime.fromtimestamp(bucket_start)
+            cells = [local.strftime("%Y-%m-%d"), local.strftime("%H:%M:%S")]
+            for sensor_id, capability in specs:
+                samples = buckets_by_sensor[sensor_id].get(bucket_start, [])
+                if capability == "temperature":
+                    values = [s["temperature"] for s in samples if s["temperature"] is not None]
+                    cells.append(str(round(sum(values) / len(values), 1)) if values else "")
+                else:  # occupancy — occupied if any sample in the bucket is occupied
+                    occ = [s["occupancy"] for s in samples if s["occupancy"] is not None]
+                    cells.append(("1" if any(occ) else "0") if occ else "")
+            data.append(",".join(cells))
+
+        return {
+            "thermostatIdentifier": serial,
+            "sensors": [
+                {
+                    "sensorId": meta["sensor_id"],
+                    "sensorName": meta["name"],
+                    "sensorType": meta["type"],
+                    "sensorUsage": "monitor",
+                }
+                for meta in present_metas
+            ],
+            "columns": columns,
+            "data": data,
+        }
 
     # -- /1/runtimeReport ---------------------------------------------------
 
@@ -322,6 +383,7 @@ class LocalSource:
         end_ts = int(end_local.timestamp())
 
         report_list = []
+        sensor_list = []
         for serial in serials:
             thermostat = self._settings.thermostat_by_serial(serial)
             if thermostat is None:
@@ -343,13 +405,17 @@ class LocalSource:
                 )
             report_list.append({"thermostatIdentifier": serial, "rowList": row_list})
 
+            sensors = self._sensor_list(serial, begin_ts, end_ts)
+            if sensors is not None:
+                sensor_list.append(sensors)
+
         return json.dumps(
             {
                 "startDate": start_date, "startInterval": start_interval,
                 "endDate": end_date, "endInterval": end_interval,
                 "columns": ",".join(columns),
                 "reportList": report_list,
-                "sensorList": [],
+                "sensorList": sensor_list,
                 **status_envelope(),
             }
         )
