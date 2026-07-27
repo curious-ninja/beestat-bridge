@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2
+
+- Fix a regression on PHP 8.3 where dynamic-property deprecation notices were
+  re-caught by cora's shutdown handler and returned to the app as an error
+  ("won't load" after a deprecation message). Deprecations are now fully
+  suppressed and never become error responses.
+
 ## 0.3.1
 
 - Force beestat's server-to-server ecobee/bridge cURL calls over IPv4
