@@ -189,6 +189,34 @@ def test_local_runtime_report_sensor_list(tmp_path):
     store.close()
 
 
+def test_local_runtime_report_uses_ecobee_response_column_names(tmp_path):
+    """beestat requests 'hvacMode' but reads the response column back as
+    'HVACmode' (ecobee capitalizes it). The local source must emit that name."""
+    from beestat_bridge.sources.local import LocalSource
+    from beestat_bridge.store import Store
+
+    settings = Settings(
+        mode="local",
+        data_dir=tmp_path,
+        thermostats=[Thermostat(serial="123456789012", homekit_entity="climate.test")],
+    )
+    store = Store(settings.db_path)
+    result = json.loads(
+        LocalSource(settings, store).runtime_report(
+            {
+                "selection": {"selectionType": "registered"},
+                "startDate": "2026-07-20", "startInterval": 0,
+                "endDate": "2026-07-20", "endInterval": 287,
+                "columns": "compCool1,hvacMode,zoneAveTemp",
+            }
+        )
+    )
+    columns = result["columns"].split(",")
+    assert "HVACmode" in columns
+    assert "hvacMode" not in columns
+    store.close()
+
+
 def test_admin_mode_override(client):
     assert client.get("/admin/status").json()["effective_mode"] == "local"
     response = client.post("/admin/mode", json={"mode": "cloud"})

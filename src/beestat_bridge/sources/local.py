@@ -24,6 +24,7 @@ import datetime as dt
 import json
 import logging
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ..settings import Settings, Thermostat
 from ..store import Store
@@ -42,10 +43,15 @@ RUNTIME_COLUMNS = [
     "compCool1", "compCool2", "compHeat1", "compHeat2",
     "auxHeat1", "auxHeat2", "fan",
     "humidifier", "dehumidifier", "ventilator", "economizer",
-    "hvacMode", "zoneAveTemp", "zoneHumidity",
+    "HVACmode", "zoneAveTemp", "zoneHumidity",
     "outdoorTemp", "outdoorHumidity",
     "zoneCalendarEvent", "zoneClimate", "zoneCoolTemp", "zoneHeatTemp",
 ]
+
+# ecobee returns the column requested as 'hvacMode' under the capitalized name
+# 'HVACmode', and beestat reads it by the RESPONSE name. Map requested names to
+# the names ecobee actually returns so the local source matches.
+RESPONSE_COLUMN_NAMES = {"hvacMode": "HVACmode"}
 
 # hvac_action -> column, but only where the system type leaves no ambiguity.
 # Heat on a heat pump (compressor vs aux vs stages) is exactly the thing we
@@ -210,7 +216,22 @@ class LocalSource:
             )
         return sensors
 
-    def _sensor_list(self, serial: str, begin_ts: int, end_ts: int) -> dict[str, Any] | None:
+    def _report_tz(self, serials: list[str]) -> ZoneInfo | None:
+        """The thermostat's IANA time zone from the last cloud snapshot's
+        location.timeZone, or None to fall back to the container's local time."""
+        for serial in serials:
+            snapshot = self._store.snapshot(serial) or {}
+            tz_name = (snapshot.get("location") or {}).get("timeZone")
+            if tz_name:
+                try:
+                    return ZoneInfo(tz_name)
+                except (ZoneInfoNotFoundError, ValueError):
+                    continue
+        return None
+
+    def _sensor_list(
+        self, serial: str, begin_ts: int, end_ts: int, tz: ZoneInfo | None = None
+    ) -> dict[str, Any] | None:
         """Build the runtimeReport sensorList for one thermostat from recorded
         remote-sensor samples: columns "<sensor_id>:<capability_id>" (temperature
         in degrees, ×10'd by beestat on store; occupancy 1/0), 5-minute buckets."""
@@ -246,7 +267,7 @@ class LocalSource:
         for bucket_start in range(
             (begin_ts // BUCKET_SECONDS) * BUCKET_SECONDS, end_ts, BUCKET_SECONDS
         ):
-            local = dt.datetime.fromtimestamp(bucket_start)
+            local = dt.datetime.fromtimestamp(bucket_start, tz)
             cells = [local.strftime("%Y-%m-%d"), local.strftime("%H:%M:%S")]
             for sensor_id, capability in specs:
                 samples = buckets_by_sensor[sensor_id].get(bucket_start, [])
@@ -281,8 +302,9 @@ class LocalSource:
         bucket_start: int,
         samples: list[dict[str, Any]],
         columns: list[str],
+        tz: ZoneInfo | None = None,
     ) -> str:
-        local = dt.datetime.fromtimestamp(bucket_start)
+        local = dt.datetime.fromtimestamp(bucket_start, tz)
         values: dict[str, Any] = {column: "" for column in columns}
 
         if samples:
@@ -310,7 +332,7 @@ class LocalSource:
                 values["zoneHeatTemp"] = round(heat_setpoint, 1)
             if cool_setpoint is not None:
                 values["zoneCoolTemp"] = round(cool_setpoint, 1)
-            values["hvacMode"] = {
+            values["HVACmode"] = {
                 "heat": "heat", "cool": "cool", "heat_cool": "auto", "off": "off",
             }.get(samples[-1].get("hvac_mode") or "", "")
             values["zoneClimate"] = (samples[-1].get("preset") or "").capitalize()
@@ -367,18 +389,30 @@ class LocalSource:
         columns = [column for column in str(body.get("columns", "")).split(",") if column]
         if not columns:
             columns = list(RUNTIME_COLUMNS)
+        # Emit the column names ecobee actually returns (e.g. hvacMode -> HVACmode),
+        # which is what beestat reads them back by.
+        columns = [RESPONSE_COLUMN_NAMES.get(column, column) for column in columns]
 
         start_date = body.get("startDate")
         end_date = body.get("endDate")
         start_interval = int(body.get("startInterval", 0))
         end_interval = int(body.get("endInterval", 287))
 
+        # beestat sends startDate/endDate in the THERMOSTAT's local time and
+        # converts our returned date/time back using the thermostat's time_zone.
+        # Honor that zone (from the snapshot's location.timeZone) for both the
+        # window and the emitted bucket labels, falling back to the container's
+        # local time when unknown.
+        tz = self._report_tz(serials)
         begin_local = dt.datetime.strptime(start_date, "%Y-%m-%d") + dt.timedelta(
             seconds=start_interval * BUCKET_SECONDS
         )
         end_local = dt.datetime.strptime(end_date, "%Y-%m-%d") + dt.timedelta(
             seconds=(end_interval + 1) * BUCKET_SECONDS
         )
+        if tz is not None:
+            begin_local = begin_local.replace(tzinfo=tz)
+            end_local = end_local.replace(tzinfo=tz)
         begin_ts = int(begin_local.timestamp())
         end_ts = int(end_local.timestamp())
 
@@ -400,12 +434,12 @@ class LocalSource:
             ):
                 row_list.append(
                     self._bucket_row(
-                        thermostat, bucket_start, by_bucket.get(bucket_start, []), columns
+                        thermostat, bucket_start, by_bucket.get(bucket_start, []), columns, tz
                     )
                 )
             report_list.append({"thermostatIdentifier": serial, "rowList": row_list})
 
-            sensors = self._sensor_list(serial, begin_ts, end_ts)
+            sensors = self._sensor_list(serial, begin_ts, end_ts, tz)
             if sensors is not None:
                 sensor_list.append(sensors)
 

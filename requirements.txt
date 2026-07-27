@@ -8,3 +8,4 @@ python-multipart>=0.0.9
 # the fix ships here; adopt it by bumping this pin. The in-tree flow in
 # ecobee_auth.py is the automatic fallback.
 python-ecobee-api>=0.4.1
+tzdata

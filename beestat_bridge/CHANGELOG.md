@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.8
+
+- Fix local-mode runtime sync dying with `Undefined array key "HVACmode"`.
+  beestat requests the `hvacMode` column but reads the response column back as
+  `HVACmode` (ecobee capitalizes it in runtimeReport output); the local source
+  now emits the ecobee response-column name, unblocking thermostat sync.
+- Make local runtimeReport buckets honor the thermostat's own timezone. Interval
+  timestamps are now formatted in the thermostat's `location.timeZone` (from the
+  cloud snapshot) instead of the container's clock, so self-hosted sensor/runtime
+  graphs line up with the live beestat site. Bundles `tzdata` so zone lookups
+  work on minimal images.
+
 ## 0.5.7
 
 - Historical sensor graphs in local mode: the runtimeReport now includes a
