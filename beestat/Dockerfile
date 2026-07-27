@@ -36,7 +36,7 @@ RUN printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d && chmod +x /usr/sbin
     && percona-release setup -y ps80 \
     && apt-get update && apt-get install -y --no-install-recommends \
       percona-server-server percona-server-client \
-      nginx git jq \
+      nginx git jq tzdata \
     && docker-php-ext-install mysqli \
     && rm -f /tmp/percona-release.deb \
     && apt-get purge -y gnupg && apt-get autoremove -y \

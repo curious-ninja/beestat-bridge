@@ -137,6 +137,42 @@ SQL
   log "schema imported and API users seeded"
 fi
 
+# Load MySQL's named time zone tables (mysql.time_zone*). beestat's self-hosting
+# docs call this out: some queries use CONVERT_TZ with named zones, which return
+# NULL unless these tables are populated. MySQL/Percona ship them empty. Runs
+# once; harmless if zoneinfo is missing.
+TZ_TABLES_MARKER="${DATA}/.tz-tables-loaded"
+if [ ! -f "${TZ_TABLES_MARKER}" ]; then
+  if mysql_tzinfo_to_sql /usr/share/zoneinfo 2>/dev/null \
+       | mysql --socket="${SOCK}" -u root mysql 2>/dev/null; then
+    log "loaded MySQL time zone tables"
+    touch "${TZ_TABLES_MARKER}"
+  else
+    log "WARNING: could not load MySQL time zone tables (CONVERT_TZ named zones unavailable)"
+  fi
+fi
+
+# One-time reset of runtime rows written before MySQL was pinned to UTC. beestat
+# stores timestamps as UTC and reads them back assuming a UTC database; rows
+# written while MySQL ran in the container's (HA-injected) local timezone read
+# back shifted by the UTC offset, so graph data no longer lines up with the time
+# axis. Clear the derived runtime tables and reset the sync markers so the
+# backfill repopulates them correctly under UTC. Guarded so it runs only once.
+RESET_MARKER="${DATA}/.runtime-utc-reset"
+if [ ! -f "${RESET_MARKER}" ]; then
+  log "one-time reset of pre-UTC runtime data (fixes timezone-shifted graphs)"
+  mysql --socket="${SOCK}" -u root beestat <<'SQL' 2>/dev/null || true
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE runtime_thermostat;
+TRUNCATE TABLE runtime_sensor;
+TRUNCATE TABLE runtime_thermostat_summary;
+UPDATE thermostat SET data_begin = NULL, data_end = NULL, sync_begin = NULL, sync_end = NULL;
+SET FOREIGN_KEY_CHECKS = 1;
+SQL
+  touch "${RESET_MARKER}"
+  log "runtime data cleared; the background sync will repopulate it under UTC"
+fi
+
 # --- PHP-FPM + nginx -------------------------------------------------------
 # Run php-fpm in the FOREGROUND (backgrounded with &) rather than daemonized
 # (-D): daemonizing detaches worker stderr, which swallows PHP fatals. Keeping

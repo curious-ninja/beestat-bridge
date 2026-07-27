@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.2
+
+- Fix timezone-shifted graph data. beestat stores timestamps as UTC and reads
+  them back assuming a UTC database; rows written before MySQL was pinned to UTC
+  (MariaDB era / pre-UTC builds) were stored under the container's local timezone
+  and read back shifted by the UTC offset, so data no longer lined up with the
+  time axis. One-time reset of the derived runtime tables + sync markers so the
+  background sync repopulates them under UTC.
+- Load MySQL's named time zone tables (mysql_tzinfo_to_sql) so CONVERT_TZ with
+  named zones works, per beestat's self-hosting docs.
+
 ## 0.5.1
 
 - Let the initial history backfill actually finish. beestat syncs up to a year of
