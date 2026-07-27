@@ -70,6 +70,23 @@ class Store:
                   equipment TEXT,
                   PRIMARY KEY (identifier, ts)
                 );
+                CREATE TABLE IF NOT EXISTS sensor_meta (
+                  identifier TEXT NOT NULL,
+                  sensor_id TEXT NOT NULL,
+                  name TEXT,
+                  type TEXT NOT NULL,
+                  updated_at INTEGER NOT NULL,
+                  PRIMARY KEY (identifier, sensor_id)
+                );
+                CREATE TABLE IF NOT EXISTS sensor_samples (
+                  identifier TEXT NOT NULL,
+                  sensor_id TEXT NOT NULL,
+                  ts INTEGER NOT NULL,
+                  temperature REAL,
+                  humidity REAL,
+                  occupancy INTEGER,
+                  PRIMARY KEY (identifier, sensor_id, ts)
+                );
                 """
             )
             self._conn.commit()
@@ -218,6 +235,56 @@ class Store:
             sample["equipment"] = json.loads(sample["equipment"]) if sample["equipment"] else None
             out.append(sample)
         return out
+
+    # -- sensors ------------------------------------------------------------
+
+    def upsert_sensor_meta(self, identifier: str, sensor_id: str, name: str, type_: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO sensor_meta (identifier, sensor_id, name, type, updated_at) "
+                "VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT (identifier, sensor_id) DO UPDATE SET name = excluded.name, "
+                "type = excluded.type, updated_at = excluded.updated_at",
+                (identifier, sensor_id, name, type_, int(time.time())),
+            )
+            self._conn.commit()
+
+    def sensor_meta(self, identifier: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT sensor_id, name, type FROM sensor_meta WHERE identifier = ? "
+                "ORDER BY type = 'thermostat' DESC, name",
+                (identifier,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def insert_sensor_sample(
+        self, identifier: str, sensor_id: str, ts: int, values: dict[str, Any]
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO sensor_samples (identifier, sensor_id, ts, temperature, "
+                "humidity, occupancy) VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT (identifier, sensor_id, ts) DO NOTHING",
+                (
+                    identifier,
+                    sensor_id,
+                    ts,
+                    values.get("temperature"),
+                    values.get("humidity"),
+                    None if values.get("occupancy") is None else int(bool(values["occupancy"])),
+                ),
+            )
+            self._conn.commit()
+
+    def latest_sensor_sample(self, identifier: str, sensor_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT temperature, humidity, occupancy FROM sensor_samples "
+                "WHERE identifier = ? AND sensor_id = ? ORDER BY ts DESC LIMIT 1",
+                (identifier, sensor_id),
+            ).fetchone()
+            return dict(row) if row else None
 
     def close(self) -> None:
         with self._lock:

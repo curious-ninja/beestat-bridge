@@ -112,6 +112,43 @@ def test_local_runtime_report_shape(client):
     assert date == "2026-07-20" and time_ == "00:00:00"
 
 
+def test_local_remote_sensors_from_store(tmp_path):
+    """Local source emits ecobee-shaped remoteSensors: a built-in thermostat
+    sensor (temp/humidity from the climate sample) plus discovered remotes, with
+    temperatures in tenths of a degree and occupancy as "true"/"false" strings."""
+    import time
+
+    from beestat_bridge.sources.local import LocalSource
+    from beestat_bridge.store import Store
+
+    settings = Settings(
+        mode="local",
+        data_dir=tmp_path,
+        thermostats=[Thermostat(serial="123456789012", homekit_entity="climate.test")],
+    )
+    store = Store(settings.db_path)
+    ts = int(time.time())
+    store.insert_sample("123456789012", ts, {"temperature": 72.4, "humidity": 45})
+    store.upsert_sensor_meta("123456789012", "rs:abc", "Bedroom", "ecobee3_remote_sensor")
+    store.insert_sensor_sample("123456789012", "rs:abc", ts, {"temperature": 70.1, "occupancy": True})
+
+    result = json.loads(LocalSource(settings, store).thermostat({"selection": {"selectionType": "registered"}}))
+    by_id = {s["id"]: s for s in result["thermostatList"][0]["remoteSensors"]}
+
+    built = {c["type"]: c["value"] for c in by_id["ei:0"]["capability"]}
+    assert by_id["ei:0"]["type"] == "thermostat"
+    assert built["temperature"] == "724"
+    assert built["humidity"] == "45"
+
+    remote = by_id["rs:abc"]
+    caps = {c["type"]: c["value"] for c in remote["capability"]}
+    assert remote["type"] == "ecobee3_remote_sensor"
+    assert remote["name"] == "Bedroom"
+    assert caps["temperature"] == "701"
+    assert caps["occupancy"] == "true"
+    store.close()
+
+
 def test_admin_mode_override(client):
     assert client.get("/admin/status").json()["effective_mode"] == "local"
     response = client.post("/admin/mode", json={"mode": "cloud"})

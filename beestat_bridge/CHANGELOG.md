@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0
+
+- Auto-discover ecobee remote sensors for local mode — no manual mapping. Uses
+  the Home Assistant device registry (each remote sensor's `via_device_id` points
+  at the thermostat, i.e. the "connected to Upstairs" relationship) via the
+  template API to find each thermostat's sensors, classifies their
+  temperature/occupancy entities, and serves them to beestat as ecobee
+  remoteSensors (the header Sensors section) in both current and stored form.
+  Historical sensor graphs (runtimeReport sensorList) will follow.
+
 ## 0.4.0
 
 - Bridge service with its own config web UI: cloud (ecobee passthrough) and

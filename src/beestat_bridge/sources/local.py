@@ -141,6 +141,7 @@ class LocalSource:
                     "fan": "fan",
                 }.get(action, "")
 
+            api_thermostat["remoteSensors"] = self._remote_sensors(serial, api_thermostat, sample)
             thermostat_list.append(api_thermostat)
 
         return json.dumps(
@@ -151,6 +152,65 @@ class LocalSource:
                 **status_envelope(),
             }
         )
+
+    @staticmethod
+    def _capability(cid: int, type_: str, value: Any) -> dict[str, str]:
+        return {"id": str(cid), "type": type_, "value": str(value)}
+
+    def _remote_sensors(
+        self, serial: str, api_thermostat: dict[str, Any], sample: dict[str, Any] | None
+    ) -> list[dict[str, Any]]:
+        """Build ecobee remoteSensors from auto-discovered HA sensors. ecobee
+        encodes temperature in tenths of a degree and occupancy as "true"/"false"
+        strings, all as strings — match that exactly so beestat parses it."""
+        name = api_thermostat.get("name") or serial
+        sensors: list[dict[str, Any]] = []
+
+        # Built-in thermostat sensor: temp/humidity come from the climate entity's
+        # own sample; occupancy (if any) from the thermostat device's sensor.
+        built: list[dict[str, str]] = []
+        cid = 1
+        if sample is not None and sample.get("temperature") is not None:
+            built.append(self._capability(cid, "temperature", round(sample["temperature"] * 10)))
+            cid += 1
+        if sample is not None and sample.get("humidity") is not None:
+            built.append(self._capability(cid, "humidity", round(sample["humidity"])))
+            cid += 1
+        stat = self._store.latest_sensor_sample(serial, "ei:0")
+        if stat is not None and stat.get("occupancy") is not None:
+            built.append(self._capability(cid, "occupancy", "true" if stat["occupancy"] else "false"))
+        if built:
+            sensors.append(
+                {"id": "ei:0", "name": name, "type": "thermostat", "inUse": True, "capability": built}
+            )
+
+        # Auto-discovered remote sensors.
+        for meta in self._store.sensor_meta(serial):
+            if meta["sensor_id"] == "ei:0":
+                continue
+            latest = self._store.latest_sensor_sample(serial, meta["sensor_id"])
+            capability: list[dict[str, str]] = []
+            cid = 1
+            if latest is not None and latest.get("temperature") is not None:
+                capability.append(self._capability(cid, "temperature", round(latest["temperature"] * 10)))
+                cid += 1
+            if latest is not None and latest.get("humidity") is not None:
+                capability.append(self._capability(cid, "humidity", round(latest["humidity"])))
+                cid += 1
+            if latest is not None and latest.get("occupancy") is not None:
+                capability.append(
+                    self._capability(cid, "occupancy", "true" if latest["occupancy"] else "false")
+                )
+            sensors.append(
+                {
+                    "id": meta["sensor_id"],
+                    "name": meta["name"] or meta["sensor_id"],
+                    "type": meta["type"],
+                    "inUse": True,
+                    "capability": capability,
+                }
+            )
+        return sensors
 
     # -- /1/runtimeReport ---------------------------------------------------
 

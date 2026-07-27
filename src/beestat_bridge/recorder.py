@@ -70,12 +70,37 @@ async def _read_thermostat(ha: HomeAssistant, thermostat: Thermostat) -> dict[st
     }
 
 
+SENSOR_DISCOVERY_TTL = 3600  # Re-scan the registry for sensors once an hour.
+
+
+async def _read_sensor(ha: HomeAssistant, sensor: dict[str, Any]) -> dict[str, Any]:
+    values: dict[str, Any] = {"temperature": None, "humidity": None, "occupancy": None}
+    if sensor.get("temperature_entity"):
+        state = await ha.get_state(sensor["temperature_entity"])
+        if state is not None:
+            values["temperature"] = _float_or_none(state.get("state"))
+    if sensor.get("humidity_entity"):
+        state = await ha.get_state(sensor["humidity_entity"])
+        if state is not None:
+            values["humidity"] = _float_or_none(state.get("state"))
+    if sensor.get("occupancy_entity"):
+        state = await ha.get_state(sensor["occupancy_entity"])
+        if state is not None and state.get("state") not in ("unavailable", "unknown"):
+            values["occupancy"] = state.get("state") == "on"
+    return values
+
+
 async def run_recorder(settings: Settings, store: Store, ha: HomeAssistant) -> None:
     logger.info(
         "recorder started: %d thermostat(s), every %ds",
         len(settings.thermostats),
         settings.ha_poll_interval,
     )
+    # Cache of auto-discovered remote sensors per thermostat serial, refreshed
+    # every SENSOR_DISCOVERY_TTL so registry changes are picked up without a
+    # per-poll registry scan.
+    discovered: dict[str, list[dict[str, Any]]] = {}
+    discovered_at: dict[str, float] = {}
     while True:
         ts = int(time.time())
         try:
@@ -87,6 +112,31 @@ async def run_recorder(settings: Settings, store: Store, ha: HomeAssistant) -> N
                     continue
                 values["outdoor_temperature"] = outdoor
                 store.insert_sample(thermostat.serial, ts, values)
+
+                # Remote sensors: refresh discovery on TTL, then sample each.
+                if ts - discovered_at.get(thermostat.serial, 0) > SENSOR_DISCOVERY_TTL:
+                    try:
+                        sensors = await ha.discover_sensors(thermostat.homekit_entity)
+                        discovered[thermostat.serial] = sensors
+                        discovered_at[thermostat.serial] = ts
+                        for sensor in sensors:
+                            store.upsert_sensor_meta(
+                                thermostat.serial,
+                                sensor["sensor_id"],
+                                sensor["name"],
+                                "thermostat" if sensor["is_stat"] else "ecobee3_remote_sensor",
+                            )
+                        logger.info(
+                            "%s: discovered %d remote sensor(s)",
+                            thermostat.homekit_entity,
+                            len([s for s in sensors if not s["is_stat"]]),
+                        )
+                    except Exception:
+                        logger.exception("sensor discovery failed for %s", thermostat.homekit_entity)
+                for sensor in discovered.get(thermostat.serial, []):
+                    store.insert_sensor_sample(
+                        thermostat.serial, sensor["sensor_id"], ts, await _read_sensor(ha, sensor)
+                    )
         except Exception:  # Recorder must never die; it is the fallback's lifeline.
             logger.exception("recorder poll failed")
         await asyncio.sleep(settings.ha_poll_interval)
