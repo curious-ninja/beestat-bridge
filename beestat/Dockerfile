@@ -74,7 +74,8 @@ RUN echo "beestat add-on ${BUILD_VERSION}" \
 
 COPY rootfs/nginx.conf /etc/nginx/nginx.conf
 COPY rootfs/run.sh /run.sh
-RUN chmod +x /run.sh
+COPY rootfs/sync-cron.sh /sync-cron.sh
+RUN chmod +x /run.sh /sync-cron.sh
 
 EXPOSE 8128
 CMD ["/run.sh"]

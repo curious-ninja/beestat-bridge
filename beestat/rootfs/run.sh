@@ -148,5 +148,11 @@ FPM_PID=$!
 log "starting nginx on :8128"
 nginx &
 NGINX_PID=$!
+
+# Background sync loop (beestat.io runs this as a cron; a self-hosted install
+# otherwise never finishes the initial backfill or refreshes current data).
+log "starting background sync"
+/sync-cron.sh &
+
 # Wait on any service; trap handles clean shutdown.
 wait -n "${DB_PID}" "${FPM_PID}" "${NGINX_PID}"

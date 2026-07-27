@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+- Add a background sync (the cron beestat.io runs but a self-hosted install
+  lacks). Every 5 minutes it calls thermostat/sensor/runtime sync as the
+  logged-in user, so the initial year-long backfill actually completes and the
+  header, sensors, and graphs stay current without keeping the beestat page
+  open. Interval configurable via SYNC_INTERVAL; server-side only, no app
+  changes. Log lines are prefixed [beestat-sync].
+
 ## 0.4.0
 
 - Pin PHP 8.1 (the version upstream beestat targets) and drop the cora
