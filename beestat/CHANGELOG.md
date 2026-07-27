@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.5
+
+- Generate temperature profiles on a WEEKLY cadence (marker-based, survives
+  restarts) to match beestat's documented behavior, instead of daily. Still
+  regenerates immediately on first run to clear a stale/empty profile.
+
 ## 0.5.4
 
 - Generate temperature profiles (Analyze tab). beestat builds these with a

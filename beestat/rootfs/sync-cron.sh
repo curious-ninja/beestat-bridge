@@ -42,17 +42,19 @@ call() {
   echo "${http:-000}"
 }
 
-# Temperature profiles (Analyze tab) are built by a scheduled job on beestat.io,
-# not computed live. Regenerate them every PROFILE_EVERY cycles (~daily at the
-# default 300s interval). Runs on the first cycle too, so the profile appears
-# promptly once there's data rather than after a full day.
-PROFILE_EVERY="${PROFILE_EVERY:-288}"
+# Temperature profiles (Analyze tab) are built by a scheduled job, not computed
+# live, and beestat treats them as a WEEKLY dataset (the GUI generate_profile is
+# cached 7 days). Regenerate only when the marker is missing or older than ~7
+# days, to match that cadence. generate_profiles bypasses the per-thermostat
+# cache, so this also clears a stale/empty profile left cached from a bad-data
+# window. The marker lives in /data (survives restarts) so restarting the add-on
+# does not force off-cadence regeneration.
+PROFILE_MARKER=/data/.profiles-generated
 
 log "started; interval=${INTERVAL}s"
 # Let nginx/php-fpm/MySQL settle before the first tick.
 sleep 30
 
-cycle=0
 while true; do
   session_key="$(mysql --socket="${SOCK}" -u root -N -e \
     "SELECT session_key FROM beestat.session WHERE deleted=0 AND user_id IS NOT NULL ORDER BY last_used_at DESC, session_id DESC LIMIT 1" \
@@ -69,11 +71,11 @@ while true; do
     r="$(call runtime sync "${session_key}")"
     log "sync http: thermostat=${t} sensor=${s} runtime=${r}"
 
-    if [ $((cycle % PROFILE_EVERY)) -eq 0 ]; then
+    if [ ! -f "${PROFILE_MARKER}" ] || [ -n "$(find "${PROFILE_MARKER}" -mtime +6 2>/dev/null)" ]; then
       p="$(call thermostat generate_profiles "${session_key}")"
-      log "generate_profiles http=${p}"
+      log "generate_profiles http=${p} (weekly)"
+      [ "${p}" = "200" ] && touch "${PROFILE_MARKER}"
     fi
-    cycle=$((cycle + 1))
   fi
 
   sleep "${INTERVAL}"
