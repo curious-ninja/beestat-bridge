@@ -384,6 +384,71 @@ def test_local_runtime_report_uses_ecobee_response_column_names(tmp_path):
     store.close()
 
 
+def test_local_serves_snapshot_only_thermostats(tmp_path):
+    """A thermostat that isn't configured for local data but has a cloud snapshot
+    stays visible in local mode (served verbatim as old data) so beestat keeps it
+    selectable — the thermostat-swap control needs more than one thermostat."""
+    from beestat_bridge.sources.local import LocalSource
+    from beestat_bridge.store import Store
+
+    settings = Settings(
+        mode="local",
+        data_dir=tmp_path,
+        thermostats=[Thermostat(serial="111111111111", homekit_entity="climate.upstairs")],
+    )
+    store = Store(settings.db_path)
+    # Main floor is cloud-only (not in the local config) but was synced before.
+    store.upsert_snapshot(
+        "222222222222",
+        {"identifier": "222222222222", "name": "Main Floor",
+         "runtime": {"actualTemperature": 705, "actualHumidity": 40,
+                     "desiredHeat": 680, "desiredCool": 740, "firstConnected": "2020-01-01 00:00:00"}},
+    )
+    source = LocalSource(settings, store)
+
+    result = json.loads(source.thermostat({"selection": {"selectionType": "registered"}}))
+    ids = [t["identifier"] for t in result["thermostatList"]]
+    assert "111111111111" in ids  # configured (synthetic/live)
+    assert "222222222222" in ids  # snapshot-only, still served
+
+    # Selecting the snapshot-only one directly also works.
+    picked = json.loads(source.thermostat(
+        {"selection": {"selectionType": "thermostats", "selectionMatch": "222222222222"}}
+    ))
+    assert picked["thermostatList"][0]["name"] == "Main Floor"
+
+    # Its runtimeReport is a benign processing error (beestat keeps old history).
+    report = json.loads(source.runtime_report(
+        {"selection": {"selectionType": "thermostats", "selectionMatch": "222222222222"},
+         "startDate": "2026-07-20", "endDate": "2026-07-20",
+         "startInterval": 0, "endInterval": 287, "columns": "zoneAveTemp"}
+    ))
+    assert report["status"]["code"] == 3
+    assert "reportList" not in report
+    store.close()
+
+
+def test_local_thermostat_always_has_runtime_keys_beestat_reads(tmp_path):
+    """beestat dereferences runtime.firstConnected et al. with no guard; the
+    synthetic (no snapshot, no sample) path must still provide them."""
+    from beestat_bridge.sources.local import LocalSource
+    from beestat_bridge.store import Store
+
+    settings = Settings(
+        mode="local",
+        data_dir=tmp_path,
+        thermostats=[Thermostat(serial="123456789012", homekit_entity="climate.test")],
+    )
+    store = Store(settings.db_path)
+    result = json.loads(
+        LocalSource(settings, store).thermostat({"selection": {"selectionType": "registered"}})
+    )
+    runtime = result["thermostatList"][0]["runtime"]
+    for key in ("actualTemperature", "actualHumidity", "desiredHeat", "desiredCool", "firstConnected"):
+        assert key in runtime
+    store.close()
+
+
 def test_admin_mode_override(client):
     assert client.get("/admin/status").json()["effective_mode"] == "local"
     response = client.post("/admin/mode", json={"mode": "cloud"})

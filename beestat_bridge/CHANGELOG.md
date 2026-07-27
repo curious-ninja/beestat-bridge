@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.1
+
+- Fix a 0.6.0 regression that wiped local thermostat data. The new snapshot
+  refresher requested only a handful of ecobee objects, but beestat's sync
+  dereferences the full set (runtime, extendedRuntime, notificationSettings, …)
+  with no guards — so the partial snapshot it wrote overwrote the good one and
+  killed beestat's sync on the first missing key. The refresher now requests the
+  exact same full object set as beestat, so snapshots stay complete and existing
+  partial ones self-heal on the next refresh. If you saw a thermostat go blank
+  after updating to 0.6.0, this restores it (a running ecobee cloud login heals
+  it within a refresh cycle).
+- Keep cloud-only thermostats visible in local mode. A thermostat you haven't
+  added to the bridge but that still has a cloud snapshot (e.g. your Main Floor
+  stat) is now served from that snapshot as old data, instead of vanishing — so
+  it stays in beestat's thermostat-swap list. Its runtimeReport returns a benign
+  "no new data" signal beestat swallows, preserving its existing history.
+- Harden against missing runtime keys: the served thermostat always includes the
+  runtime fields beestat reads unconditionally, using out-of-range sentinels
+  (mapped to null by beestat) when there's no real value.
+
 ## 0.6.0
 
 - Keep cloud-only data fresh while serving local. A new background task refreshes

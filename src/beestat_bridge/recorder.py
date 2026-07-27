@@ -26,16 +26,35 @@ logger = logging.getLogger(__name__)
 # failed refresh doesn't trip the "stale" flag.
 SNAPSHOT_REFRESH_INTERVAL = 6 * 3600
 
-# Ask for exactly the cloud-only objects local mode can't derive from HA.
+# Request the SAME full object set beestat's own ecobee_thermostat->sync() asks
+# for. beestat dereferences every one of these objects unconditionally, so a
+# snapshot missing any of them kills its sync — a partial refresh must never
+# overwrite a complete snapshot. Keep this identical to api/ecobee_thermostat.php.
 _SNAPSHOT_REFRESH_BODY = {
     "selection": {
         "selectionType": "registered",
         "selectionMatch": "",
-        "includeSensors": True,
-        "includeProgram": True,
-        "includeLocation": True,
-        "includeEquipmentStatus": True,
+        "includeRuntime": True,
+        "includeExtendedRuntime": True,
+        "includeElectricity": True,
         "includeSettings": True,
+        "includeLocation": True,
+        "includeProgram": True,
+        "includeEvents": True,
+        "includeDevice": True,
+        "includeTechnician": True,
+        "includeUtility": True,
+        "includeManagement": True,
+        "includeAlerts": True,
+        "includeWeather": True,
+        "includeHouseDetails": True,
+        "includeOemCfg": True,
+        "includeEquipmentStatus": True,
+        "includeNotificationSettings": True,
+        "includeVersion": True,
+        "includePrivacy": True,
+        "includeAudio": True,
+        "includeSensors": True,
     }
 }
 

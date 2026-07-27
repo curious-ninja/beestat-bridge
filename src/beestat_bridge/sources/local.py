@@ -93,17 +93,30 @@ class LocalSource:
 
     # -- /1/thermostat ------------------------------------------------------
 
+    def _known_serials(self) -> list[str]:
+        """Every thermostat we can serve in local mode: those configured for live
+        local data first, then any others we still hold a cloud snapshot for.
+        The latter are served as their last-known snapshot (old data) so beestat
+        keeps them visible and selectable — the thermostat-swap control needs more
+        than one thermostat to appear."""
+        serials = [thermostat.serial for thermostat in self._settings.thermostats]
+        for serial in self._store.snapshot_identifiers():
+            if serial not in serials:
+                serials.append(serial)
+        return serials
+
     def _resolve_serials(self, selection: dict[str, Any]) -> list[str]:
+        known = self._known_serials()
         if selection.get("selectionType") == "thermostats":
             requested = [
                 serial.strip()
                 for serial in str(selection.get("selectionMatch", "")).split(",")
                 if serial.strip()
             ]
-            configured = {thermostat.serial for thermostat in self._settings.thermostats}
-            return [serial for serial in requested if serial in configured]
-        # selectionType "registered": every configured thermostat.
-        return [thermostat.serial for thermostat in self._settings.thermostats]
+            known_set = set(known)
+            return [serial for serial in requested if serial in known_set]
+        # selectionType "registered": everything we can serve.
+        return known
 
     def _latest_sample(self, serial: str) -> dict[str, Any] | None:
         import time
@@ -111,6 +124,21 @@ class LocalSource:
         now = int(time.time())
         samples = self._store.samples(serial, now - 3600, now + 1)
         return samples[-1] if samples else None
+
+    @staticmethod
+    def _ensure_runtime_keys(api_thermostat: dict[str, Any]) -> dict[str, Any]:
+        """beestat's ecobee_thermostat sync dereferences these runtime keys with
+        no isset() guard (api/ecobee_thermostat.php), so a missing one aborts its
+        whole sync. Guarantee they exist; where we have no real value, use
+        out-of-range sentinels beestat maps to null (temps /10 outside its bounds,
+        humidity outside 0-100)."""
+        runtime = api_thermostat.setdefault("runtime", {})
+        runtime.setdefault("actualTemperature", -10000)
+        runtime.setdefault("actualHumidity", -1)
+        runtime.setdefault("desiredHeat", -10000)
+        runtime.setdefault("desiredCool", -10000)
+        runtime.setdefault("firstConnected", "")
+        return api_thermostat
 
     def _synthetic_thermostat(self, thermostat: Thermostat) -> dict[str, Any]:
         """Bare-minimum object for the ecobee-died-before-first-sync case."""
@@ -135,6 +163,12 @@ class LocalSource:
         for serial in serials:
             thermostat = self._settings.thermostat_by_serial(serial)
             if thermostat is None:
+                # Not configured for local data — serve the last cloud snapshot
+                # verbatim (old data), so it stays visible and selectable even
+                # though we record nothing new for it.
+                snapshot = self._store.snapshot(serial)
+                if snapshot is not None:
+                    thermostat_list.append(self._ensure_runtime_keys(snapshot))
                 continue
             api_thermostat = self._store.snapshot(serial) or self._synthetic_thermostat(thermostat)
 
@@ -162,7 +196,7 @@ class LocalSource:
                 }.get(action, "")
 
             api_thermostat["remoteSensors"] = self._remote_sensors(serial, api_thermostat, sample)
-            thermostat_list.append(api_thermostat)
+            thermostat_list.append(self._ensure_runtime_keys(api_thermostat))
 
         return json.dumps(
             {
@@ -494,6 +528,16 @@ class LocalSource:
     def runtime_report(self, body: dict[str, Any]) -> str:
         selection = body.get("selection", {})
         serials = self._resolve_serials(selection)
+        # Snapshot-only thermostats (visible in local mode but with no local run
+        # data) have no runtime to report. beestat requests runtimeReport one
+        # thermostat at a time and dereferences reportList[0].rowList[0] with no
+        # guard, so an empty report would crash it and blank rows would overwrite
+        # its old history. Instead signal a benign "processing error" (ecobee
+        # status 3), which beestat swallows (code 10512 -> "pretend it worked and
+        # move on"), leaving the thermostat's existing graph data intact.
+        serials = [s for s in serials if self._settings.thermostat_by_serial(s) is not None]
+        if not serials:
+            return json.dumps(status_envelope(3, "Processing error."))
         columns = [column for column in str(body.get("columns", "")).split(",") if column]
         if not columns:
             columns = list(RUNTIME_COLUMNS)
