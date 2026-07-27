@@ -79,8 +79,14 @@ if [ ! -f "${ENGINE_STAMP}" ]; then
 fi
 
 log "starting MySQL"
+# Pin the server to UTC regardless of the container's inherited TZ (Home
+# Assistant injects the host's local timezone into add-on containers). beestat
+# stores all timestamps as UTC and assumes the database is UTC; if MySQL runs in
+# a DST-observing zone, UTC values that land in a spring-forward gap (e.g.
+# 02:00 on a US DST day) are rejected with "Incorrect datetime value".
 mysqld --user=mysql --datadir="${DB_DATA}" \
-  --socket="${SOCK}" --bind-address=127.0.0.1 --port=3306 --mysqlx=OFF &
+  --socket="${SOCK}" --bind-address=127.0.0.1 --port=3306 --mysqlx=OFF \
+  --default-time-zone='+00:00' &
 DB_PID=$!
 
 # Flush MySQL cleanly when the add-on is stopped.

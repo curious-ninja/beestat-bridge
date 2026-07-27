@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.3
+
+- Pin MySQL to UTC (--default-time-zone=+00:00). Home Assistant injects the
+  host's local timezone into add-on containers, so MySQL came up in a
+  DST-observing zone; beestat stores UTC timestamps, and a UTC value in a
+  spring-forward gap (e.g. 02:00 on a US DST day) was rejected with "Incorrect
+  datetime value". Matches how the hosted beestat runs.
+
 ## 0.3.2
 
 - Fix a regression on PHP 8.3 where dynamic-property deprecation notices were
