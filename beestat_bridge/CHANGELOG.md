@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.6
+
+- Fix sensor auto-discovery: HA's /api/template does not expose the `devices()`
+  enumerator ("'devices' is undefined"), which made every discovery 400. Rewrite
+  it to iterate sensor/binary_sensor states and resolve each to its device via
+  `device_id`/`device_attr` (both available), keeping the same via_device
+  relationship logic.
+
 ## 0.5.5
 
 - Surface HA's actual error when the discovery template is rejected (a 400 from
