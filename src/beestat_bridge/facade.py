@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any
 from urllib.parse import urlencode
 
@@ -279,6 +280,56 @@ async def admin_set_config(request: Request) -> dict[str, Any]:
         "runtime config saved via UI: %d thermostat(s)", len(context.settings.thermostats)
     )
     return {"saved": True, "config": settings_module.editable_config(context.settings)}
+
+
+@router.get("/admin/thermostats")
+async def admin_thermostats(request: Request) -> dict[str, Any]:
+    """Live view for the config UI: each configured thermostat's most recent
+    reading plus its auto-discovered remote sensors, straight from the recorder
+    store. Lets you confirm a thermostat is the right one and see what sensors
+    were found — no manual mapping."""
+    context = _context(request)
+    now = int(time.time())
+    thermostats = []
+    for thermostat in context.settings.thermostats:
+        serial = thermostat.serial
+        samples = context.store.samples(serial, now - 3600, now + 1)
+        latest = samples[-1] if samples else None
+        current = None
+        if latest is not None:
+            current = {
+                "temperature": latest.get("temperature"),
+                "humidity": latest.get("humidity"),
+                "hvac_mode": latest.get("hvac_mode"),
+                "hvac_action": latest.get("hvac_action"),
+                "setpoint_heat": latest.get("setpoint_heat"),
+                "setpoint_cool": latest.get("setpoint_cool"),
+                "ts": latest.get("ts"),
+            }
+        sensors = []
+        for meta in context.store.sensor_meta(serial):
+            if meta["sensor_id"] == "ei:0":  # the thermostat's own device
+                continue
+            reading = context.store.latest_sensor_sample(serial, meta["sensor_id"])
+            sensors.append(
+                {
+                    "name": meta["name"],
+                    "type": meta["type"],
+                    "temperature": reading.get("temperature") if reading else None,
+                    "occupancy": None
+                    if not reading or reading.get("occupancy") is None
+                    else bool(reading["occupancy"]),
+                }
+            )
+        thermostats.append(
+            {
+                "serial": serial,
+                "homekit_entity": thermostat.homekit_entity,
+                "current": current,
+                "sensors": sensors,
+            }
+        )
+    return {"thermostats": thermostats}
 
 
 @router.get("/admin/ha/entities")

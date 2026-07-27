@@ -142,6 +142,45 @@ PAGE = """<!doctype html>
   .msg { margin-top: 14px; min-height: 1.4em; font-size: .86rem; font-weight: 600; }
   .msg.ok { color: var(--ok); } .msg.bad { color: var(--bad); }
   a { color: var(--accent); }
+
+  /* collapsible thermostat cards */
+  details.thermostat {
+    border: 1px solid var(--border); border-radius: 10px;
+    background: var(--surface-2); margin-top: 14px; overflow: hidden;
+  }
+  details.thermostat > summary {
+    list-style: none; cursor: pointer; padding: 13px 16px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  details.thermostat > summary::-webkit-details-marker { display: none; }
+  details.thermostat > summary::before {
+    content: "\\25B8"; color: var(--muted); transition: transform .15s; flex: none;
+  }
+  details.thermostat[open] > summary::before { transform: rotate(90deg); }
+  .t-head { display: flex; align-items: center; justify-content: space-between;
+            flex: 1; gap: 12px; min-width: 0; }
+  .t-head-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .t-title { font-weight: 600; font-size: .94rem; white-space: nowrap;
+             overflow: hidden; text-overflow: ellipsis; }
+  .t-live { font-size: .82rem; color: var(--muted); }
+  .t-live .live-temp { color: var(--text); font-weight: 600; }
+  .t-count { font-size: .76rem; color: var(--muted); white-space: nowrap; flex: none; }
+  .t-body { padding: 2px 16px 18px; }
+  .t-sensors { margin-top: 16px; }
+  .sensors-title { font-size: .7rem; text-transform: uppercase; letter-spacing: .07em;
+                   color: var(--muted); font-weight: 700; margin-bottom: 10px; }
+  .sensor-list { display: flex; flex-wrap: wrap; gap: 8px; }
+  .sensor-chip {
+    display: flex; flex-direction: column; gap: 3px; padding: 9px 13px;
+    background: var(--field); border: 1px solid var(--border); border-radius: 9px;
+    min-width: 130px;
+  }
+  .sensor-name { font-size: .84rem; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .sensor-name .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+  .sensor-name .dot.occupied { background: var(--ok); }
+  .sensor-stat { font-size: .82rem; color: var(--muted); }
+  .sensor-stat .live-temp { color: var(--text); font-weight: 600; }
+  details.equip { margin-top: 16px; }
 </style>
 </head>
 <body>
@@ -337,26 +376,46 @@ async function pasteToken(event) {
 }
 
 /* ---- configuration ---- */
+function fmtTemp(value) {
+  return (Math.round(value * 10) / 10) + '°';
+}
 function thermostatCard(t) {
-  const card = document.createElement('fieldset');
+  const card = document.createElement('details');
   card.className = 'thermostat';
+  card.dataset.serial = t.serial || '';
   const sources = t.equipment_sources || {};
   card.innerHTML = `
-    <legend>Thermostat</legend>
-    <div class="grid2">
-      <label>Serial number <input class="t-serial" required></label>
-      <label>Climate entity (HomeKit) <input class="t-entity" list="climate-entities" required></label>
-      <label>System type <select class="t-system"></select></label>
-      <label class="inline" style="margin-top:2.1rem">
-        <input type="checkbox" class="t-mapping"> Derive unambiguous runtime from hvac_action</label>
-    </div>
-    <details>
-      <summary class="muted">Equipment wire sensors (optional — future ESPHome 24VAC monitor)</summary>
-      <div class="grid2 t-sources"></div>
-    </details>
-    <button type="button" class="danger" onclick="this.closest('fieldset').remove()">Remove</button>`;
+    <summary>
+      <div class="t-head">
+        <div class="t-head-main">
+          <span class="t-title">${t.homekit_entity || 'New thermostat'}</span>
+          <span class="t-live">…</span>
+        </div>
+        <span class="t-count"></span>
+      </div>
+    </summary>
+    <div class="t-body">
+      <div class="grid2">
+        <label>Serial number <input class="t-serial" required></label>
+        <label>Climate entity (HomeKit) <input class="t-entity" list="climate-entities" required></label>
+        <label>System type <select class="t-system"></select></label>
+        <label class="inline" style="margin-top:2.1rem">
+          <input type="checkbox" class="t-mapping"> Derive unambiguous runtime from hvac_action</label>
+      </div>
+      <div class="t-sensors"></div>
+      <details class="equip">
+        <summary class="muted">Equipment wire sensors (optional — future ESPHome 24VAC monitor)</summary>
+        <div class="grid2 t-sources"></div>
+      </details>
+      <button type="button" class="danger" onclick="this.closest('details.thermostat').remove()">Remove</button>
+    </div>`;
   card.querySelector('.t-serial').value = t.serial || '';
-  card.querySelector('.t-entity').value = t.homekit_entity || '';
+  const entity = card.querySelector('.t-entity');
+  entity.value = t.homekit_entity || '';
+  // Keep the collapsed title in sync while editing.
+  entity.addEventListener('input', () => {
+    card.querySelector('.t-title').textContent = entity.value || 'New thermostat';
+  });
   const select = card.querySelector('.t-system');
   for (const type of SYSTEM_TYPES) {
     const option = new Option(type.replaceAll('_', ' '), type, false, type === t.system_type);
@@ -379,11 +438,62 @@ function thermostatCard(t) {
   return card;
 }
 function addThermostat() {
-  document.getElementById('thermostat-list').appendChild(thermostatCard({}));
+  const card = thermostatCard({});
+  card.open = true; // new one starts expanded so you can fill it in
+  document.getElementById('thermostat-list').appendChild(card);
+}
+/* Fill each thermostat card's collapsed summary + discovered-sensor list from
+   the recorder store. Read-only; runs on a timer. */
+async function loadThermostatStatus() {
+  let data;
+  try { data = await api('admin/thermostats'); } catch (e) { return; }
+  const bySerial = {};
+  for (const t of (data.thermostats || [])) { bySerial[t.serial] = t; }
+  for (const card of document.querySelectorAll('details.thermostat')) {
+    const status = bySerial[card.dataset.serial];
+    const live = card.querySelector('.t-live');
+    const count = card.querySelector('.t-count');
+    const sensorsDiv = card.querySelector('.t-sensors');
+    if (!status) { live.textContent = ''; count.textContent = ''; sensorsDiv.innerHTML = ''; continue; }
+    const c = status.current;
+    if (c && c.temperature != null) {
+      const parts = ['<span class="live-temp">' + fmtTemp(c.temperature) + '</span>'];
+      if (c.humidity != null) { parts.push(Math.round(c.humidity) + '%'); }
+      if (c.hvac_action && c.hvac_action !== 'off' && c.hvac_action !== 'idle') { parts.push(c.hvac_action); }
+      live.innerHTML = parts.join(' · ');
+    } else {
+      live.textContent = 'no recent data';
+    }
+    count.textContent = status.sensors.length
+      ? status.sensors.length + ' sensor' + (status.sensors.length === 1 ? '' : 's')
+      : '';
+    sensorsDiv.innerHTML = '';
+    if (status.sensors.length) {
+      const title = document.createElement('div');
+      title.className = 'sensors-title';
+      title.textContent = 'Discovered remote sensors';
+      sensorsDiv.appendChild(title);
+      const list = document.createElement('div');
+      list.className = 'sensor-list';
+      for (const s of status.sensors) {
+        const chip = document.createElement('div');
+        chip.className = 'sensor-chip';
+        const occ = s.occupancy === true ? 'occupied' : (s.occupancy === false ? 'vacant' : '');
+        const dot = s.occupancy === true ? ' occupied' : '';
+        const temp = s.temperature != null
+          ? '<span class="live-temp">' + fmtTemp(s.temperature) + '</span>' : '—';
+        chip.innerHTML =
+          '<span class="sensor-name"><span class="dot' + dot + '"></span>' + s.name + '</span>' +
+          '<span class="sensor-stat">' + temp + (occ ? ' · ' + occ : '') + '</span>';
+        list.appendChild(chip);
+      }
+      sensorsDiv.appendChild(list);
+    }
+  }
 }
 function collectConfig() {
   const thermostats = [];
-  for (const card of document.querySelectorAll('fieldset.thermostat')) {
+  for (const card of document.querySelectorAll('details.thermostat')) {
     const sources = {};
     for (const input of card.querySelectorAll('.t-source')) {
       sources[input.dataset.key] = input.value.trim() || null;
@@ -442,9 +552,10 @@ async function loadEntities() {
 }
 
 refreshStatus();
-loadConfig();
 loadEntities();
+loadConfig().then(loadThermostatStatus);
 setInterval(refreshStatus, 10000);
+setInterval(loadThermostatStatus, 15000);
 </script>
 </body>
 </html>

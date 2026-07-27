@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.3
+
+- Collapsible thermostat cards in the config UI (default collapsed). The
+  collapsed summary shows the climate entity name, current temperature/humidity/
+  action, and sensor count so you can confirm the right thermostat at a glance.
+  Expanding reveals the config plus a "Discovered remote sensors" list with each
+  sensor's live temperature and occupancy. Backed by a new /admin/thermostats
+  endpoint sourced from the recorder store.
+
 ## 0.5.2
 
 - Fix the build so source changes actually ship. The Dockerfile clones the repo
