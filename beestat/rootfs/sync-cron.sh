@@ -42,10 +42,17 @@ call() {
   echo "${http:-000}"
 }
 
+# Temperature profiles (Analyze tab) are built by a scheduled job on beestat.io,
+# not computed live. Regenerate them every PROFILE_EVERY cycles (~daily at the
+# default 300s interval). Runs on the first cycle too, so the profile appears
+# promptly once there's data rather than after a full day.
+PROFILE_EVERY="${PROFILE_EVERY:-288}"
+
 log "started; interval=${INTERVAL}s"
 # Let nginx/php-fpm/MySQL settle before the first tick.
 sleep 30
 
+cycle=0
 while true; do
   session_key="$(mysql --socket="${SOCK}" -u root -N -e \
     "SELECT session_key FROM beestat.session WHERE deleted=0 AND user_id IS NOT NULL ORDER BY last_used_at DESC, session_id DESC LIMIT 1" \
@@ -61,6 +68,12 @@ while true; do
     s="$(call sensor sync "${session_key}")"
     r="$(call runtime sync "${session_key}")"
     log "sync http: thermostat=${t} sensor=${s} runtime=${r}"
+
+    if [ $((cycle % PROFILE_EVERY)) -eq 0 ]; then
+      p="$(call thermostat generate_profiles "${session_key}")"
+      log "generate_profiles http=${p}"
+    fi
+    cycle=$((cycle + 1))
   fi
 
   sleep "${INTERVAL}"

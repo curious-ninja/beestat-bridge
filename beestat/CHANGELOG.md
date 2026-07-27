@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.4
+
+- Generate temperature profiles (Analyze tab). beestat builds these with a
+  scheduled job, not live; without it the Analyze tab shows "No data to display"
+  even with runtime synced. The background sync now calls
+  thermostat->generate_profiles on the first cycle and ~daily thereafter, as
+  beestat.io's cron does.
+
 ## 0.5.3
 
 - Raise php-fpm workers (pm.max_children 5 -> 12). Long-running backfill syncs
