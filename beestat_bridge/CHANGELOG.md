@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.2
+
+- Fix the build so source changes actually ship. The Dockerfile clones the repo
+  at build time, but that layer wasn't tied to the version, so Docker cached it
+  forever — every bump reused the original clone and no src change landed
+  (including the sensor auto-discovery and the UI restyle). Reference
+  BUILD_VERSION in the clone step to bust the cache on each version bump. This
+  build finally includes 0.5.0 (sensors) and 0.5.1 (UI restyle).
+
 ## 0.5.1
 
 - Restyle the setup/config page to match beestat's dark, card-based look:

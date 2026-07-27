@@ -13,7 +13,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-RUN git clone --depth 1 --branch "${BRIDGE_REF}" "${BRIDGE_REPO}" /tmp/bridge \
+# BUILD_VERSION (passed by the Supervisor = the add-on version) is referenced in
+# the clone RUN so that bumping the add-on version busts this layer's cache and
+# re-clones, picking up new src commits. Without this the clone layer is cached
+# forever and src changes never ship despite version bumps.
+ARG BUILD_VERSION=dev
+RUN echo "beestat-bridge build ${BUILD_VERSION}" \
+    && git clone --depth 1 --branch "${BRIDGE_REF}" "${BRIDGE_REPO}" /tmp/bridge \
     && cp -r /tmp/bridge/src /app/src \
     && pip install --no-cache-dir -r /tmp/bridge/requirements.txt \
     && rm -rf /tmp/bridge
