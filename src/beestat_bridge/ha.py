@@ -47,9 +47,15 @@ class HomeAssistant:
     async def render_template(self, template: str) -> str:
         """Render a Jinja template server-side. This is the only REST route that
         can reach the device/entity registry (device_id, device_attr,
-        device_entities), which the states API does not expose."""
+        device_entities), which the states API does not expose. On a non-200,
+        include HA's response body -- for /template a 400 carries the actual
+        Jinja error message, which is what we need to debug it."""
         response = await self._client.post("/template", json={"template": template})
-        response.raise_for_status()
+        if response.status_code != 200:
+            raise HomeAssistantError(
+                "template render failed (" + str(response.status_code) + "): "
+                + response.text[:600]
+            )
         return response.text
 
     async def discover_sensors(self, climate_entity: str) -> list[dict[str, Any]]:
@@ -79,7 +85,7 @@ class HomeAssistant:
         )
         try:
             devices = json.loads(await self.render_template(template))
-        except (httpx.HTTPError, json.JSONDecodeError, ValueError):
+        except (httpx.HTTPError, HomeAssistantError, json.JSONDecodeError, ValueError):
             return []
 
         sensors: list[dict[str, Any]] = []
@@ -156,8 +162,8 @@ class HomeAssistant:
         )
         try:
             raw = await self.render_template(template)
-        except httpx.HTTPError as error:
-            return {"error": "template request failed: " + str(error)}
+        except (httpx.HTTPError, HomeAssistantError) as error:
+            return {"error": str(error)}
         try:
             return json.loads(raw)
         except (json.JSONDecodeError, ValueError):

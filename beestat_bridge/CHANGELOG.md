@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.5
+
+- Surface HA's actual error when the discovery template is rejected (a 400 from
+  /api/template carries the Jinja error in its body, which was being dropped).
+  The Diagnose output now shows it.
+
 ## 0.5.4
 
 - Sensor discovery: broaden entity classification (fall back to unit /
