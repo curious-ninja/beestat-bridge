@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1
+
+- Restyle the setup/config page to match beestat's dark, card-based look:
+  elevated cards, status pills, a segmented Cloud/Local/Auto control, and styled
+  form controls. Same functionality; no behavior change.
+
 ## 0.5.0
 
 - Auto-discover ecobee remote sensors for local mode — no manual mapping. Uses
