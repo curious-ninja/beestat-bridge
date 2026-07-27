@@ -21,16 +21,25 @@ log() { echo "[beestat-sync] $*"; }
 # shellcheck disable=SC1091
 source /data/secrets.env 2>/dev/null || true
 
-# $1 resource, $2 method, $3 session_key -> prints the HTTP status code.
+# $1 resource, $2 method, $3 session_key -> prints the HTTP status code. If
+# beestat returns a failure envelope (e.g. a backfill chunk erroring, which sync
+# swallows silently), log a snippet so a stall is visible instead of invisible.
 call() {
-  curl -s -o /dev/null -w "%{http_code}" --max-time 3600 -G \
+  local out http body
+  out="$(curl -s -w $'\n%{http_code}' --max-time 3600 -G \
     --data-urlencode "api_key=${BEESTAT_API_KEY:-}" \
     --data-urlencode "resource=$1" \
     --data-urlencode "method=$2" \
     --data-urlencode "arguments={}" \
     --data-urlencode "bypass_cache_read=1" \
     -H "Cookie: session_key=$3" \
-    "${BASE}" 2>/dev/null || echo "000"
+    "${BASE}" 2>/dev/null)" || { echo "000"; return; }
+  http="${out##*$'\n'}"
+  body="${out%$'\n'*}"
+  case "$body" in
+    *'"success":false'*) log "$1->$2 error: $(printf '%s' "$body" | head -c 300)" ;;
+  esac
+  echo "${http:-000}"
 }
 
 log "started; interval=${INTERVAL}s"

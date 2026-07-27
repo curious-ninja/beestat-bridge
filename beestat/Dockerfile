@@ -60,6 +60,11 @@ RUN { \
       echo '[www]'; \
       echo 'catch_workers_output = yes'; \
       echo 'decorate_workers_output = no'; \
+      echo 'pm = dynamic'; \
+      echo 'pm.max_children = 12'; \
+      echo 'pm.start_servers = 3'; \
+      echo 'pm.min_spare_servers = 2'; \
+      echo 'pm.max_spare_servers = 6'; \
     } > /usr/local/etc/php-fpm.d/zz-beestat.conf
 
 # The php base image already ships /var/www/html (non-empty), so clone to a

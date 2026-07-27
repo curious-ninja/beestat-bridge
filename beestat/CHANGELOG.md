@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.3
+
+- Raise php-fpm workers (pm.max_children 5 -> 12). Long-running backfill syncs
+  hold a worker for minutes at a time, so with the default of 5 the pool
+  saturated ("server reached pm.max_children") and other requests queued/stalled
+  — a thermostat could get stuck on "Syncing". More workers keeps the app
+  responsive during backfill.
+- Background sync now logs the error body when a sync returns a failure envelope,
+  so a silently-swallowed backfill stall is visible in the log.
+
 ## 0.5.2
 
 - Fix timezone-shifted graph data. beestat stores timestamps as UTC and reads
