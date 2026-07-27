@@ -1,9 +1,11 @@
 # Base image pinned (not HA's BUILD_FROM) so the Debian/apt toolchain, PHP, and
-# nginx are predictable across arches. Current, supported PHP: the fork patches
-# cora so deprecation notices (e.g. dynamic-property creation, deprecated in 8.2)
-# are logged instead of treated as fatal, so it runs cleanly on modern PHP rather
-# than being pinned to end-of-life 8.1.
-FROM php:8.3-fpm-bookworm
+# nginx are predictable across arches. PHP 8.1 matches the version the upstream
+# hosted beestat targets. This matters because cora runs with error_reporting(-1)
+# and an error handler that treats ANY notice as fatal; cora relies on dynamic
+# properties (e.g. request::$total_time), and creating one became E_DEPRECATED in
+# PHP 8.2. Pinning 8.1 keeps the fork byte-for-byte identical to upstream (no cora
+# patch needed). Revisit when upstream itself moves to 8.2+.
+FROM php:8.1-fpm-bookworm
 
 # The beestat application source is pulled from the companion fork at build
 # time (kept out of this repo so the fork stays independently updatable). Both

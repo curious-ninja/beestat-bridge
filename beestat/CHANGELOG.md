@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0
+
+- Pin PHP 8.1 (the version upstream beestat targets) and drop the cora
+  deprecation patch from the fork. Keeps the fork minimal and byte-for-byte
+  mergeable with upstream: the only fork changes now are the ones genuinely
+  required for self-hosting (configurable API base URL, HTTP/port-safe redirect
+  and cookies, optional IPv4). 8.1 is EOL for security patches but this is a
+  LAN-only app behind Home Assistant; revisit when upstream moves to 8.2+.
+
 ## 0.3.3
 
 - Pin MySQL to UTC (--default-time-zone=+00:00). Home Assistant injects the
