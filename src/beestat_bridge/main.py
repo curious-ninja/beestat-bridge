@@ -50,6 +50,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ha=None,
         ecobee_login=None,  # In-flight EcobeeAuthenticator (MFA pending).
         recorder_running=False,
+        # On-grab cloud snapshot refresh debounce (see facade._maybe_refresh_snapshots).
+        snapshot_refresh_at=0.0,
+        snapshot_refresh_lock=asyncio.Lock(),
     )
 
     @asynccontextmanager

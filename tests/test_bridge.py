@@ -449,6 +449,41 @@ def test_local_thermostat_always_has_runtime_keys_beestat_reads(tmp_path):
     store.close()
 
 
+def test_local_thermostat_grab_refreshes_cloud_snapshot(client):
+    """Grabbing /1/thermostat in local mode refreshes the cloud snapshot first
+    (so comfort/inUse are current), collapses a burst via the debounce, and does
+    not fire for runtimeReport grabs."""
+    context = client.app.state.context
+    calls = []
+
+    async def fake_thermostat(body):
+        calls.append(body)
+        return json.dumps({"thermostatList": [], "status": {"code": 0}})
+
+    context.cloud.thermostat = fake_thermostat
+    context.snapshot_refresh_at = 0.0
+
+    tokens = _get_tokens(client)
+    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+    t_body = json.dumps({"selection": {"selectionType": "registered"}})
+
+    client.get("/1/thermostat", params={"body": t_body}, headers=headers)
+    assert len(calls) == 1  # the grab triggered a cloud refresh
+
+    # A second grab inside the debounce window reuses it — no extra cloud call.
+    client.get("/1/thermostat", params={"body": t_body}, headers=headers)
+    assert len(calls) == 1
+
+    # A runtimeReport grab never triggers the refresh (comfort/inUse aren't there).
+    r_body = json.dumps({
+        "selection": {"selectionType": "registered"},
+        "startDate": "2026-07-20", "endDate": "2026-07-20",
+        "startInterval": 0, "endInterval": 11, "columns": "zoneAveTemp",
+    })
+    client.get("/1/runtimeReport", params={"body": r_body}, headers=headers)
+    assert len(calls) == 1
+
+
 def test_admin_mode_override(client):
     assert client.get("/admin/status").json()["effective_mode"] == "local"
     response = client.post("/admin/mode", json={"mode": "cloud"})

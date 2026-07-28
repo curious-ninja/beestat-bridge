@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.2
+
+- Refresh the cloud snapshot on each grab, not on a 6-hour timer. When beestat
+  grabs `/1/thermostat` in local mode, the bridge now refreshes the cloud
+  snapshot from ecobee first, so the cloud-only fields it carries (current
+  comfort mode, sensor inUse) are current for that grab. The refresh is debounced
+  (beestat's back-to-back thermostat + sensor grabs collapse into one cloud call)
+  and best-effort (a slow or dead cloud never blocks or breaks the local serve —
+  it just serves the last snapshot). The 6-hour background refresh remains as a
+  startup self-heal and long-gap safety net.
+
 ## 0.6.1
 
 - Fix a 0.6.0 regression that wiped local thermostat data. The new snapshot

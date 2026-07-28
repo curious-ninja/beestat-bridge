@@ -1,6 +1,6 @@
 # Home Assistant app (add-on) manifest for beestat-bridge.
 name: Beestat Bridge
-version: 0.6.1
+version: 0.6.2
 slug: beestat_bridge
 description: >-
   Ecobee API emulator for self-hosted beestat — cloud passthrough while ecobee

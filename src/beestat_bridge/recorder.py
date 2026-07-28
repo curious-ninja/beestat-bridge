@@ -59,14 +59,22 @@ _SNAPSHOT_REFRESH_BODY = {
 }
 
 
+async def refresh_snapshots(cloud: CloudSource) -> None:
+    """One cloud snapshot refresh (full object set). Raises CloudAuthDead when
+    ecobee tokens are gone; the caller decides how to handle that."""
+    await cloud.thermostat(_SNAPSHOT_REFRESH_BODY)
+
+
 async def run_snapshot_refresh(settings: Settings, store: Store, cloud: CloudSource) -> None:
-    """Keep the per-thermostat cloud snapshot fresh so beestat's cloud-only
-    fields don't silently freeze while we serve local. Uses whatever ecobee
-    tokens exist; once they're gone the snapshot ages and the UI marks it
-    stale (the user opted to keep beestat showing last-known values)."""
+    """Startup + slow-cadence safety net that keeps the per-thermostat cloud
+    snapshot fresh so beestat's cloud-only fields don't silently freeze. The
+    primary refresh is now on-demand, in the request path (see the facade), so
+    comfort/inUse are current on each grab; this loop covers the startup self-heal
+    and any long gap between grabs. Uses whatever ecobee tokens exist; once
+    they're gone the snapshot ages and the UI marks it stale."""
     while True:
         try:
-            await cloud.thermostat(_SNAPSHOT_REFRESH_BODY)
+            await refresh_snapshots(cloud)
             logger.info("cloud snapshot refreshed")
         except CloudAuthDead:
             logger.debug("cloud snapshot refresh skipped: not connected to ecobee")

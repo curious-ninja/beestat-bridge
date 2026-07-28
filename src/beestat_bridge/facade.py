@@ -12,6 +12,7 @@ its token dance stays exercised against the bridge.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -27,6 +28,7 @@ from fastapi.responses import (
 )
 
 from . import ecobee_auth, login, settings as settings_module, tokens, ui
+from .recorder import refresh_snapshots
 from .sources.cloud import CloudAuthDead
 from .sources.local import LocalSource
 from .sources.local import status_envelope
@@ -98,6 +100,36 @@ async def token(
 
 # -- data endpoints ---------------------------------------------------------
 
+# On-grab snapshot refresh: collapse beestat's near-simultaneous thermostat +
+# sensor grabs into one cloud call, and bound how long a serve waits on the cloud.
+_SNAPSHOT_REFRESH_DEBOUNCE = 60.0
+_SNAPSHOT_REFRESH_TIMEOUT = 8.0
+
+
+async def _maybe_refresh_snapshots(context: Any) -> None:
+    """Best-effort, debounced cloud snapshot refresh in the serve path so
+    comfort/inUse are current on each grab. Never raises: a dead cloud
+    (CloudAuthDead) or a slow one (timeout) just leaves the last snapshot in
+    place. On any outcome we record the attempt time so a dead cloud isn't
+    retried on every single request."""
+    now = time.monotonic()
+    if now - getattr(context, "snapshot_refresh_at", 0.0) < _SNAPSHOT_REFRESH_DEBOUNCE:
+        return
+    async with context.snapshot_refresh_lock:
+        if time.monotonic() - context.snapshot_refresh_at < _SNAPSHOT_REFRESH_DEBOUNCE:
+            return
+        try:
+            await asyncio.wait_for(
+                refresh_snapshots(context.cloud), timeout=_SNAPSHOT_REFRESH_TIMEOUT
+            )
+        except CloudAuthDead:
+            logger.debug("on-grab snapshot refresh skipped: not connected to ecobee")
+        except Exception:
+            logger.debug("on-grab snapshot refresh failed", exc_info=True)
+        finally:
+            context.snapshot_refresh_at = time.monotonic()
+
+
 async def _serve(request: Request, endpoint: str, body: str | None) -> PlainTextResponse:
     context = _context(request)
     if not _authorized(request):
@@ -121,6 +153,13 @@ async def _serve(request: Request, endpoint: str, body: str | None) -> PlainText
             )
             payload = await handler(parsed_body)
         else:
+            # Comfort mode and sensor inUse are cloud-only and live in the
+            # /1/thermostat object. Refresh the snapshot from the cloud right
+            # before serving it so beestat gets them current on each grab
+            # (debounced + best-effort: a slow or dead cloud never blocks or
+            # breaks the local serve).
+            if endpoint == "thermostat":
+                await _maybe_refresh_snapshots(context)
             handler = getattr(
                 context.local, "thermostat" if endpoint == "thermostat" else "runtime_report"
             )
