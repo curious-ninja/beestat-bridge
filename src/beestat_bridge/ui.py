@@ -476,7 +476,7 @@ async function loadThermostatStatus() {
       live.textContent = 'no recent data';
     }
     if (status.cloud && status.cloud.stale) {
-      live.innerHTML += ' <span class="stale-badge" title="Cloud data (sensor in-use, comfort mode) hasn\'t refreshed in over 24h — hidden to avoid showing stale info">cloud stale</span>';
+      live.innerHTML += ' <span class="stale-badge" title="Cloud data (sensor in-use, comfort mode) has not refreshed in over 24h; hidden to avoid showing stale info">cloud stale</span>';
     }
     count.textContent = status.sensors.length
       ? status.sensors.length + ' sensor' + (status.sensors.length === 1 ? '' : 's')

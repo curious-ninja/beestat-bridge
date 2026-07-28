@@ -492,6 +492,31 @@ def test_admin_mode_override(client):
     assert response.json()["effective_mode"] == "local"
 
 
+def test_setup_page_inline_script_parses(client):
+    """The whole page hangs at "..." if the inline <script> has a syntax error
+    (e.g. a Python-escaped apostrophe landing inside a single-quoted JS string).
+    Syntax-check the emitted script with node so that regresses loudly."""
+    import re
+    import shutil
+    import subprocess
+    import tempfile
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node not available to syntax-check inline JS")
+
+    page = client.get("/").text
+    match = re.search(r"<script>(.*)</script>", page, re.S)
+    assert match, "setup page has no inline <script>"
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=True) as handle:
+        handle.write(match.group(1))
+        handle.flush()
+        result = subprocess.run(
+            [node, "--check", handle.name], capture_output=True, text=True
+        )
+    assert result.returncode == 0, f"inline JS syntax error:\n{result.stderr}"
+
+
 def test_setup_page_served_at_root(client):
     response = client.get("/")
     assert response.status_code == 200

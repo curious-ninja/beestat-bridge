@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.3
+
+- Fix the config page hanging at "..." with no data. A stale-badge tooltip added
+  in 0.6.0 contained an apostrophe ("hasn't") that, once emitted, landed inside a
+  single-quoted JS string and broke the entire inline script at parse time — so
+  the status/thermostat bootstrap never ran and every field stayed "...". (The
+  bridge itself was fine the whole time; only the page's JavaScript was dead.)
+  Reworded the tooltip and added a test that syntax-checks the emitted inline JS
+  so this can't recur silently.
+
 ## 0.6.2
 
 - Refresh the cloud snapshot on each grab, not on a 6-hour timer. When beestat
