@@ -177,54 +177,75 @@ async def run_recorder(settings: Settings, store: Store, ha: HomeAssistant) -> N
         try:
             outdoor = await _read_outdoor(ha, settings.outdoor_temperature)
             for thermostat in settings.thermostats:
-                # Refresh discovery on TTL first, so the thermostat's own
-                # temperature sensor is available before we record its sample.
-                if ts - discovered_at.get(thermostat.serial, 0) > SENSOR_DISCOVERY_TTL:
-                    try:
-                        sensors = await ha.discover_sensors(thermostat.homekit_entity)
-                        discovered[thermostat.serial] = sensors
-                        discovered_at[thermostat.serial] = ts
-                        for sensor in sensors:
-                            store.upsert_sensor_meta(
-                                thermostat.serial,
-                                sensor["sensor_id"],
-                                sensor["name"],
-                                "thermostat" if sensor["is_stat"] else "ecobee3_remote_sensor",
-                                sensor.get("serial"),
+                # Isolate each thermostat so one failing entity can't stop the
+                # others — and, crucially, so optional enrichment can't block the
+                # thermostat sample, which is the runtime graph's lifeline.
+                try:
+                    # Refresh discovery on TTL first, so the thermostat's own
+                    # temperature sensor is available before we record its sample.
+                    if ts - discovered_at.get(thermostat.serial, 0) > SENSOR_DISCOVERY_TTL:
+                        try:
+                            sensors = await ha.discover_sensors(thermostat.homekit_entity)
+                            discovered[thermostat.serial] = sensors
+                            discovered_at[thermostat.serial] = ts
+                            for sensor in sensors:
+                                store.upsert_sensor_meta(
+                                    thermostat.serial,
+                                    sensor["sensor_id"],
+                                    sensor["name"],
+                                    "thermostat" if sensor["is_stat"] else "ecobee3_remote_sensor",
+                                    sensor.get("serial"),
+                                )
+                            logger.info(
+                                "%s: discovered %d remote sensor(s)",
+                                thermostat.homekit_entity,
+                                len([s for s in sensors if not s["is_stat"]]),
                             )
-                        logger.info(
-                            "%s: discovered %d remote sensor(s)",
-                            thermostat.homekit_entity,
-                            len([s for s in sensors if not s["is_stat"]]),
-                        )
-                    except Exception:
-                        logger.exception("sensor discovery failed for %s", thermostat.homekit_entity)
+                        except Exception:
+                            logger.exception(
+                                "sensor discovery failed for %s", thermostat.homekit_entity
+                            )
 
-                values = await _read_thermostat(ha, thermostat)
-                if values is None:
-                    logger.warning("entity %s unavailable", thermostat.homekit_entity)
-                    continue
-                values["outdoor_temperature"] = outdoor
+                    values = await _read_thermostat(ha, thermostat)
+                    if values is None:
+                        logger.warning("entity %s unavailable", thermostat.homekit_entity)
+                        continue
+                    values["outdoor_temperature"] = outdoor
 
-                # HomeKit reports the climate entity's current_temperature coarsely
-                # (~1°); the thermostat's built-in temperature sensor is finer. Use
-                # it for the indoor temperature/humidity when discovered.
-                stat_sensor = next(
-                    (s for s in discovered.get(thermostat.serial, []) if s["is_stat"]), None
-                )
-                if stat_sensor is not None:
-                    stat_reading = await _read_sensor(ha, stat_sensor)
-                    if stat_reading.get("temperature") is not None:
-                        values["temperature"] = stat_reading["temperature"]
-                    if stat_reading.get("humidity") is not None:
-                        values["humidity"] = stat_reading["humidity"]
-
-                store.insert_sample(thermostat.serial, ts, values)
-
-                for sensor in discovered.get(thermostat.serial, []):
-                    store.insert_sensor_sample(
-                        thermostat.serial, sensor["sensor_id"], ts, await _read_sensor(ha, sensor)
+                    # Best-effort finer indoor temp from the thermostat's own
+                    # sensor (HomeKit's climate current_temperature is coarse).
+                    # Must never block the sample insert below.
+                    stat_sensor = next(
+                        (s for s in discovered.get(thermostat.serial, []) if s["is_stat"]), None
                     )
+                    if stat_sensor is not None:
+                        try:
+                            stat_reading = await _read_sensor(ha, stat_sensor)
+                            if stat_reading.get("temperature") is not None:
+                                values["temperature"] = stat_reading["temperature"]
+                            if stat_reading.get("humidity") is not None:
+                                values["humidity"] = stat_reading["humidity"]
+                        except Exception:
+                            logger.debug(
+                                "stat sensor read failed; using climate temperature",
+                                exc_info=True,
+                            )
+
+                    store.insert_sample(thermostat.serial, ts, values)
+
+                    for sensor in discovered.get(thermostat.serial, []):
+                        try:
+                            store.insert_sensor_sample(
+                                thermostat.serial, sensor["sensor_id"], ts,
+                                await _read_sensor(ha, sensor),
+                            )
+                        except Exception:
+                            logger.debug(
+                                "sensor sample failed for %s", sensor.get("sensor_id"),
+                                exc_info=True,
+                            )
+                except Exception:
+                    logger.exception("recorder: thermostat %s failed this poll", thermostat.serial)
         except Exception:  # Recorder must never die; it is the fallback's lifeline.
             logger.exception("recorder poll failed")
         await asyncio.sleep(settings.ha_poll_interval)

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.9
+
+- Fix the recorder stopping on a single failed read. 0.6.8 added a read of the
+  thermostat's own temperature sensor BEFORE the sample insert; because the whole
+  poll shared one try/except, any error there (or in a later per-sensor read)
+  aborted the poll and skipped the thermostat sample — so the runtime graph could
+  stop recording. Each thermostat is now isolated, the finer-temperature lookup
+  and per-sensor reads are best-effort, and the thermostat sample insert can no
+  longer be blocked by optional enrichment. One flaky entity no longer stalls the
+  recorder.
+
 ## 0.6.8
 
 - Finer indoor temperature in local mode. HomeKit reports the climate entity's
