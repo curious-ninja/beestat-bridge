@@ -1,6 +1,6 @@
 # Home Assistant app (add-on) manifest for beestat (self-hosted, via the bridge).
 name: Beestat
-version: 0.5.5
+version: 0.5.6
 slug: beestat
 description: >-
   Self-hosted beestat HVAC analytics, fed by Beestat Bridge instead of the
@@ -30,6 +30,14 @@ options:
   # The URL you use in your browser to open beestat (host + the 8128 mapping).
   # Used for session cookies and as the ecobee login redirect target.
   app_url: http://homeassistant.local:8128
+  # One-time maintenance: move each thermostat's forward-sync cursor back to this
+  # UTC time so beestat re-pulls (and backfills) that window from the bridge —
+  # e.g. to recover a gap left when you switched a thermostat's data source after
+  # its cursor had already moved past it. Format: "YYYY-MM-DD HH:MM:SS" in UTC.
+  # Leave blank normally; applied once per distinct value, then ignored. Only
+  # cursors AHEAD of this time move, so thermostats with older data are untouched.
+  runtime_resync_from: ""
 schema:
   bridge_url: url
   app_url: url
+  runtime_resync_from: str?

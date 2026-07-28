@@ -173,6 +173,30 @@ SQL
   log "runtime data cleared; the background sync will repopulate it under UTC"
 fi
 
+# One-time runtime re-sync (opt-in via the runtime_resync_from option). Moves a
+# thermostat's forward-sync cursor (data_end) back to a chosen UTC time so the
+# background sync re-requests that window from the bridge and backfills it. Used
+# to recover a gap left when a thermostat's data source changed (e.g. cloud ->
+# local) after the cursor had already advanced past it. Only cursors AHEAD of the
+# target move (WHERE data_end > target), so thermostats whose data ends earlier
+# are left untouched. Applied once per distinct value (recorded in a marker).
+RESYNC_FROM="$(jq -r '.runtime_resync_from // empty' "${OPTIONS}" 2>/dev/null || true)"
+RESYNC_MARKER="${DATA}/.runtime-resync-applied"
+if [ -n "${RESYNC_FROM}" ] && \
+   [ "${RESYNC_FROM}" != "$(cat "${RESYNC_MARKER}" 2>/dev/null || true)" ]; then
+  if printf '%s' "${RESYNC_FROM}" \
+       | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$'; then
+    log "one-time runtime re-sync: moving forward-sync cursor back to ${RESYNC_FROM} UTC"
+    mysql --socket="${SOCK}" -u root beestat <<SQL 2>/dev/null || true
+UPDATE thermostat SET data_end = '${RESYNC_FROM}' WHERE data_end > '${RESYNC_FROM}';
+SQL
+    printf '%s' "${RESYNC_FROM}" > "${RESYNC_MARKER}"
+    log "cursor moved; the background sync will re-pull and backfill from ${RESYNC_FROM}"
+  else
+    log "WARNING: runtime_resync_from='${RESYNC_FROM}' is not 'YYYY-MM-DD HH:MM:SS' UTC; ignored"
+  fi
+fi
+
 # --- PHP-FPM + nginx -------------------------------------------------------
 # Run php-fpm in the FOREGROUND (backgrounded with &) rather than daemonized
 # (-D): daemonizing detaches worker stderr, which swallows PHP fatals. Keeping

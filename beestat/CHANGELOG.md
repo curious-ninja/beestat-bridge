@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.6
+
+- Add a one-time runtime re-sync option (`runtime_resync_from`). Set it to a UTC
+  "YYYY-MM-DD HH:MM:SS" in the add-on's Configuration tab and restart: it moves
+  each thermostat's forward-sync cursor back to that time (only for cursors ahead
+  of it), so the background sync re-pulls and backfills that window from the
+  bridge — e.g. to recover a gap left when a thermostat's data source changed
+  after the cursor had already advanced past it. Applied once per distinct value,
+  then ignored. No database access needed; it's all in the add-on UI.
+
 ## 0.5.5
 
 - Generate temperature profiles on a WEEKLY cadence (marker-based, survives
