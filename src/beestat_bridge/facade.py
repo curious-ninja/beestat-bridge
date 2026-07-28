@@ -405,6 +405,59 @@ async def admin_discover(request: Request) -> dict[str, Any]:
     return {"thermostats": thermostats}
 
 
+@router.get("/admin/archive/sensors")
+async def admin_archive_sensors(request: Request) -> dict[str, Any]:
+    """Truth-check for 'why weren't my remote sensors in the cloud graph': inspect
+    the last archived cloud responses to see exactly what ecobee returned. If the
+    remoteSensors listed the sensors but the runtimeReport sensorList did not, the
+    gap is ecobee's history, not registration; if both listed them, it's a beestat
+    sync/registration issue a re-sync can fix."""
+    context = _context(request)
+
+    def summarize_thermostat(archive: dict[str, Any] | None) -> Any:
+        if archive is None:
+            return {"found": False, "note": "no archived cloud /1/thermostat yet"}
+        body = json.loads(archive["response"])
+        out = []
+        for stat in body.get("thermostatList", []):
+            remote = stat.get("remoteSensors") or []
+            out.append({
+                "identifier": stat.get("identifier"),
+                "remote_sensor_count": len(remote),
+                "remote_sensors": [
+                    {"id": s.get("id"), "name": s.get("name"), "type": s.get("type"),
+                     "inUse": s.get("inUse")}
+                    for s in remote
+                ],
+            })
+        return {"found": True, "age_seconds": int(time.time()) - archive["ts"], "thermostats": out}
+
+    def summarize_runtime(archive: dict[str, Any] | None) -> Any:
+        if archive is None:
+            return {"found": False, "note": "no archived cloud /1/runtimeReport yet"}
+        body = json.loads(archive["response"])
+        out = []
+        for entry in body.get("sensorList", []):
+            columns = entry.get("columns") or []
+            # Sensor columns look like "<sensorId>:<capabilityId>"; the thermostat's
+            # own is "ei:0:*". Anything else is a remote sensor.
+            sensor_ids = sorted({c.rsplit(":", 1)[0] for c in columns if ":" in c})
+            out.append({
+                "identifier": entry.get("thermostatIdentifier"),
+                "column_count": len(columns),
+                "sensor_ids_in_columns": sensor_ids,
+                "remote_sensor_ids": [s for s in sensor_ids if not s.startswith("ei:")],
+                "data_rows": len(entry.get("data") or []),
+            })
+        return {"found": True, "age_seconds": int(time.time()) - archive["ts"],
+                "sensor_lists": out}
+
+    return {
+        "thermostat_remoteSensors": summarize_thermostat(context.store.latest_archive("thermostat")),
+        "runtimeReport_sensorList": summarize_runtime(context.store.latest_archive("runtimeReport")),
+    }
+
+
 @router.get("/admin/ha/entities")
 async def admin_ha_entities(request: Request) -> dict[str, list[str]]:
     """Entity ids for the config UI's pickers, grouped by how they're used."""

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.5
+
+- Add a "Check cloud sensor history" diagnostic (config page + /admin/archive/
+  sensors). It reads the last archived cloud responses and reports exactly what
+  ecobee returned — the /1/thermostat remoteSensors and the runtimeReport
+  sensorList (per-sensor columns and row count) — so it's clear whether missing
+  remote-sensor history is because ecobee didn't return it or because beestat
+  never synced it.
+
 ## 0.6.4
 
 - Fix the thermostat runtime graph (indoor temp, setpoints, equipment) being

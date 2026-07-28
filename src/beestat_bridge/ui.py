@@ -267,6 +267,7 @@ PAGE = """<!doctype html>
   <div id="thermostat-list"></div>
   <button onclick="addThermostat()">＋ Add thermostat</button>
   <button onclick="diagnoseDiscovery()">Diagnose sensor discovery</button>
+  <button onclick="diagnoseCloudSensors()">Check cloud sensor history</button>
   <pre id="discover-output" class="diag" hidden></pre>
 
   <div class="grid2">
@@ -512,6 +513,16 @@ async function diagnoseDiscovery() {
   out.textContent = 'Running discovery…';
   try {
     out.textContent = JSON.stringify(await api('admin/discover'), null, 2);
+  } catch (e) {
+    out.textContent = 'Failed: ' + e;
+  }
+}
+async function diagnoseCloudSensors() {
+  const out = document.getElementById('discover-output');
+  out.hidden = false;
+  out.textContent = 'Reading archived cloud responses…';
+  try {
+    out.textContent = JSON.stringify(await api('admin/archive/sensors'), null, 2);
   } catch (e) {
     out.textContent = 'Failed: ' + e;
   }

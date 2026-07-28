@@ -214,6 +214,17 @@ class Store:
             )
             self._conn.commit()
 
+    def latest_archive(self, endpoint: str) -> dict[str, Any] | None:
+        """The most recent archived cloud response for an endpoint (verbatim), or
+        None. Used by diagnostics to inspect what ecobee actually returned."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT ts, request, response FROM archive WHERE endpoint = ? "
+                "ORDER BY ts DESC LIMIT 1",
+                (endpoint,),
+            ).fetchone()
+            return dict(row) if row else None
+
     # -- samples ------------------------------------------------------------
 
     def insert_sample(self, identifier: str, ts: int, values: dict[str, Any]) -> None:

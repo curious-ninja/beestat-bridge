@@ -557,6 +557,39 @@ def test_local_thermostat_grab_refreshes_cloud_snapshot(client):
     assert len(calls) == 1
 
 
+def test_admin_archive_sensors_reports_what_ecobee_returned(client):
+    """The archive diagnostic surfaces the remoteSensors and runtimeReport
+    sensorList from the last cloud responses, so we can tell whether ecobee
+    actually returned the sub-sensors."""
+    store = client.app.state.context.store
+    store.archive_response(
+        "thermostat", {"selection": {}},
+        json.dumps({"thermostatList": [{
+            "identifier": "123456789012",
+            "remoteSensors": [
+                {"id": "ei:0", "name": "Upstairs", "type": "thermostat", "inUse": True},
+                {"id": "rs:100", "name": "Bedroom", "type": "ecobee3_remote_sensor",
+                 "inUse": True},
+            ],
+        }]}),
+    )
+    store.archive_response(
+        "runtimeReport", {"selection": {}},
+        json.dumps({"sensorList": [{
+            "thermostatIdentifier": "123456789012",
+            "columns": ["date", "time", "ei:0:1", "rs:100:1", "rs:100:3"],
+            "data": ["2026-07-20,00:00:00,70,71,0"],
+        }]}),
+    )
+
+    result = client.get("/admin/archive/sensors").json()
+    stat = result["thermostat_remoteSensors"]["thermostats"][0]
+    assert stat["remote_sensor_count"] == 2
+    runtime = result["runtimeReport_sensorList"]["sensor_lists"][0]
+    assert runtime["remote_sensor_ids"] == ["rs:100"]  # sub-sensor present in history
+    assert runtime["data_rows"] == 1
+
+
 def test_admin_mode_override(client):
     assert client.get("/admin/status").json()["effective_mode"] == "local"
     response = client.post("/admin/mode", json={"mode": "cloud"})
