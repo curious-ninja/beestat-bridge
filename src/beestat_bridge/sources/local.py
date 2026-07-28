@@ -617,23 +617,26 @@ class LocalSource:
         start_interval = int(body.get("startInterval", 0))
         end_interval = int(body.get("endInterval", 287))
 
-        # beestat sends startDate/endDate in the THERMOSTAT's local time and
-        # converts our returned date/time back using the thermostat's time_zone.
-        # Honor that zone (from the snapshot's location.timeZone) for both the
-        # window and the emitted bucket labels, falling back to the container's
-        # local time when unknown.
+        # The REQUEST window is UTC: beestat pins PHP to UTC
+        # (api/index.php date_default_timezone_set('UTC')), so the
+        # startDate/startInterval labels it sends are UTC wall time — and the
+        # real ecobee API interprets the runtimeReport request window as UTC
+        # too. Only the RESPONSE rows are labeled in the thermostat's local
+        # time (which beestat converts back using thermostat.time_zone) — that
+        # is what tz below is for. Parsing the request window as thermostat
+        # time shifted every served window by the UTC offset into the future,
+        # so beestat's forward sync ([data_end-3h .. now]) was answered with
+        # blank future buckets, ingested nothing, and the graphs froze while
+        # every sync reported success.
         tz = self._report_tz(serials)
-        begin_local = dt.datetime.strptime(start_date, "%Y-%m-%d") + dt.timedelta(
-            seconds=start_interval * BUCKET_SECONDS
-        )
-        end_local = dt.datetime.strptime(end_date, "%Y-%m-%d") + dt.timedelta(
-            seconds=(end_interval + 1) * BUCKET_SECONDS
-        )
-        if tz is not None:
-            begin_local = begin_local.replace(tzinfo=tz)
-            end_local = end_local.replace(tzinfo=tz)
-        begin_ts = int(begin_local.timestamp())
-        end_ts = int(end_local.timestamp())
+        begin_utc = dt.datetime.strptime(start_date, "%Y-%m-%d").replace(
+            tzinfo=dt.timezone.utc
+        ) + dt.timedelta(seconds=start_interval * BUCKET_SECONDS)
+        end_utc = dt.datetime.strptime(end_date, "%Y-%m-%d").replace(
+            tzinfo=dt.timezone.utc
+        ) + dt.timedelta(seconds=(end_interval + 1) * BUCKET_SECONDS)
+        begin_ts = int(begin_utc.timestamp())
+        end_ts = int(end_utc.timestamp())
 
         report_list = []
         sensor_list = []

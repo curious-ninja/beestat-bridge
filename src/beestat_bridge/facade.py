@@ -523,12 +523,14 @@ async def admin_selftest_runtime(request: Request) -> dict[str, Any]:
     if not serials:
         return {"ok": False, "error": "no thermostats configured for local data"}
 
-    tz = local._report_tz(serials)
-    now_local = dt.datetime.now(tz)
+    # Build the window exactly the way beestat does: UTC wall-time labels
+    # (its PHP is pinned to UTC), so this test exercises the same request
+    # interpretation as a real sync — a window bug can't hide from it.
+    now_utc = dt.datetime.now(dt.timezone.utc)
     body = {
         "selection": {"selectionType": "thermostats", "selectionMatch": ",".join(serials)},
-        "startDate": (now_local - dt.timedelta(days=1)).strftime("%Y-%m-%d"),
-        "endDate": now_local.strftime("%Y-%m-%d"),
+        "startDate": (now_utc - dt.timedelta(days=1)).strftime("%Y-%m-%d"),
+        "endDate": now_utc.strftime("%Y-%m-%d"),
         "startInterval": 0,
         "endInterval": 287,
         "columns": ",".join(RUNTIME_COLUMNS),

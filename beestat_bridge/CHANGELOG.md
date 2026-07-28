@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.11
+
+- Fix the frozen runtime graphs: parse the runtimeReport REQUEST window as UTC.
+  beestat pins PHP to UTC, so the startDate/startInterval labels it sends are
+  UTC wall time — and the real ecobee API interprets the request window as UTC
+  too (only the response rows are in thermostat time). The local source was
+  parsing the window as thermostat-local time instead, shifting every served
+  window by the UTC offset into the future: beestat's forward sync asked for
+  [cursor .. now] and was answered with blank future buckets, so it ingested
+  nothing — silently — and the graphs froze the moment this parsing shipped
+  (~11:35 PM ET) even though the recorder and the report itself were healthy.
+  Response rows stay labeled in the thermostat's local time, exactly as ecobee
+  does and beestat expects.
+- Make the "Test runtime report" diagnostic build its request window in UTC the
+  same way beestat does, so a window-interpretation bug can no longer pass the
+  self-test while real syncs starve.
+- After updating: the sync resumes on its own from where the cursor stopped. To
+  also backfill the days the graphs were frozen (and the remote-sensor history
+  under the unified ids), set the beestat add-on's `runtime_resync_from` to just
+  before the local switch, e.g. `2026-07-27 07:00:00` (UTC), and restart it.
+
 ## 0.6.10
 
 - Stop masking serve failures as benign. A crash while serving /1/thermostat or
