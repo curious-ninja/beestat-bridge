@@ -431,6 +431,41 @@ def test_local_sensor_list_emits_ecobee_ids_for_history_continuity(tmp_path):
     store.close()
 
 
+def test_sensor_matched_by_serial_code_not_name(tmp_path):
+    """A stable-id match (HA device serial == ecobee pairing code) is used even
+    when the names differ, so renaming a sensor doesn't break the link."""
+    from beestat_bridge.sources.local import LocalSource
+    from beestat_bridge.store import Store
+
+    settings = Settings(
+        mode="local",
+        data_dir=tmp_path,
+        thermostats=[Thermostat(serial="123456789012", homekit_entity="climate.test")],
+    )
+    store = Store(settings.db_path)
+    store.upsert_snapshot("123456789012", {
+        "identifier": "123456789012", "name": "Upstairs",
+        "remoteSensors": [
+            {"id": "rs2:100", "code": "AB12", "name": "Kitchen",
+             "type": "ecobee3_remote_sensor", "inUse": True},
+        ],
+    })
+    # Different name in HA, but the device serial equals ecobee's pairing code.
+    store.upsert_sensor_meta(
+        "123456789012", "rs:localdev", "Renamed In HA", "ecobee3_remote_sensor", serial="AB12"
+    )
+    import time
+    store.insert_sensor_sample("123456789012", "rs:localdev", int(time.time()), {"temperature": 70.0})
+
+    result = json.loads(
+        LocalSource(settings, store).thermostat({"selection": {"selectionType": "registered"}})
+    )
+    by_id = {s["id"]: s for s in result["thermostatList"][0]["remoteSensors"]}
+    assert by_id["rs2:100"]["name"] == "Kitchen"   # matched by serial->code, not name
+    assert "rs:localdev" not in by_id
+    store.close()
+
+
 def test_local_runtime_report_sensor_list(tmp_path):
     """runtimeReport sensorList: '<sensor_id>:<capability_id>' columns (temp id 1,
     occupancy id 3), CSV data rows with temperature in degrees and occupancy 1/0."""

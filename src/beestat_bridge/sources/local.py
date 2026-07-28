@@ -263,6 +263,10 @@ class LocalSource:
             }
             if sensor.get("id"):
                 index["id:" + str(sensor["id"])] = entry
+            # ecobee's per-sensor pairing code — a stable physical id we can match
+            # against the HA device serial without relying on names.
+            if sensor.get("code"):
+                index["code:" + str(sensor["code"])] = entry
             if sensor.get("name"):
                 index["name:" + self._normalize_name(sensor["name"])] = entry
         return index
@@ -296,23 +300,28 @@ class LocalSource:
         prefix = self._stat_prefix(serial)
         return {
             meta["sensor_id"]: self._reconcile_sensor(
-                meta["sensor_id"], meta["name"], prefix, official
+                meta["sensor_id"], meta["name"], prefix, official, meta.get("serial")
             )[1:]
             for meta in self._store.sensor_meta(serial)
         }
 
     def _reconcile_sensor(
-        self, sensor_id: str, ha_name: str, prefix: str, official: dict[str, dict[str, Any]]
+        self, sensor_id: str, ha_name: str, prefix: str, official: dict[str, dict[str, Any]],
+        serial: str | None = None,
     ) -> tuple[str, str, bool]:
-        """Map a stored sensor to its ecobee-official (id, name, inUse), matching
-        by ecobee id or by name (with the thermostat prefix stripped). Emitting the
-        ecobee id — not our HA-derived one — keeps a sensor's identity the same in
-        local and cloud mode, so beestat attaches local data to the same sensor
-        (and its history) instead of registering a duplicate. Falls back to the
-        stored id / HA name / inUse=True when there's no cloud match."""
+        """Map a stored sensor to its ecobee-official (id, name, inUse). Prefer a
+        stable-id match — the ecobee id, or the HA device serial against ecobee's
+        pairing code/id — and only fall back to name (thermostat prefix stripped)
+        when no id lines up. Emitting the ecobee id — not our HA-derived one —
+        keeps a sensor's identity the same in local and cloud mode, so beestat
+        attaches local data to the same sensor (and its history) instead of a
+        duplicate. Falls back to the stored id / HA name / inUse=True with no
+        cloud match."""
         ha_name = ha_name or sensor_id
-        keys = [
-            "id:" + sensor_id,
+        keys = ["id:" + sensor_id]
+        if serial:
+            keys += ["code:" + serial, "id:" + serial]
+        keys += [
             "name:" + self._normalize_name(self._strip_prefix(ha_name, prefix)),
             "name:" + self._normalize_name(ha_name),
         ]
@@ -368,7 +377,7 @@ class LocalSource:
                     self._capability("occupancy", "true" if latest["occupancy"] else "false")
                 )
             emit_id, display_name, in_use = self._reconcile_sensor(
-                meta["sensor_id"], meta["name"], prefix, official
+                meta["sensor_id"], meta["name"], prefix, official, meta.get("serial")
             )
             sensors.append(
                 {
@@ -420,7 +429,9 @@ class LocalSource:
                 continue
             # Emit the ecobee-official id/name so this sensor's local history lands
             # on the same beestat sensor as its cloud history.
-            emit_id, emit_name, _ = self._reconcile_sensor(sensor_id, meta["name"], prefix, official)
+            emit_id, emit_name, _ = self._reconcile_sensor(
+                sensor_id, meta["name"], prefix, official, meta.get("serial")
+            )
             buckets: dict[int, list[dict[str, Any]]] = {}
             has_occupancy = False
             for sample in samples:

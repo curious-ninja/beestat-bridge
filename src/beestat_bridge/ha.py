@@ -88,6 +88,8 @@ class HomeAssistant:
             "{%- set ns.rows = ns.rows + [{"
             "'device': d, 'is_stat': d == stat,"
             "'device_name': device_attr(d, 'name_by_user') or device_attr(d, 'name'),"
+            "'serial': device_attr(d, 'serial_number'),"
+            "'model': device_attr(d, 'model'),"
             "'entity': e, 'domain': e.split('.')[0],"
             "'device_class': state_attr(e, 'device_class'),"
             "'unit': state_attr(e, 'unit_of_measurement')}] -%}"
@@ -114,6 +116,8 @@ class HomeAssistant:
                 {
                     "name": row.get("device_name") or row["device"],
                     "is_stat": bool(row.get("is_stat")),
+                    "serial": row.get("serial"),
+                    "model": row.get("model"),
                     "temperature": None,
                     "humidity": None,
                     "occupancy": None,
@@ -155,6 +159,8 @@ class HomeAssistant:
                     "sensor_id": "ei:0" if is_stat else "rs:" + str(device_id_),
                     "name": device["name"],
                     "is_stat": is_stat,
+                    "serial": device["serial"],
+                    "model": device["model"],
                     "temperature_entity": device["temperature"],
                     "humidity_entity": device["humidity"],
                     "occupancy_entity": device["occupancy"],

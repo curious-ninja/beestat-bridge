@@ -458,6 +458,41 @@ async def admin_archive_sensors(request: Request) -> dict[str, Any]:
     }
 
 
+@router.get("/admin/sensors/identity")
+async def admin_sensors_identity(request: Request) -> dict[str, Any]:
+    """Side-by-side identifiers so we can pick a stable key to match a Home
+    Assistant sensor to its ecobee-cloud sensor instead of relying on names:
+    ecobee's id/code/name (from the snapshot) vs HA's serial/model/name (from the
+    device registry)."""
+    context = _context(request)
+    thermostats = []
+    for thermostat in context.settings.thermostats:
+        serial = thermostat.serial
+        snapshot = context.store.snapshot(serial) or {}
+        ecobee = [
+            {"id": s.get("id"), "code": s.get("code"), "name": s.get("name"),
+             "type": s.get("type")}
+            for s in (snapshot.get("remoteSensors") or [])
+        ]
+        ha_sensors = []
+        if context.ha is not None:
+            try:
+                ha_sensors = [
+                    {"name": s.get("name"), "serial": s.get("serial"),
+                     "model": s.get("model"), "is_stat": s.get("is_stat")}
+                    for s in await context.ha.discover_sensors(thermostat.homekit_entity)
+                ]
+            except Exception:  # diagnostics must never throw
+                logger.debug("identity discovery failed", exc_info=True)
+        thermostats.append({
+            "serial": serial,
+            "homekit_entity": thermostat.homekit_entity,
+            "ecobee_sensors": ecobee,
+            "ha_sensors": ha_sensors,
+        })
+    return {"thermostats": thermostats}
+
+
 @router.get("/admin/ha/entities")
 async def admin_ha_entities(request: Request) -> dict[str, list[str]]:
     """Entity ids for the config UI's pickers, grouped by how they're used."""

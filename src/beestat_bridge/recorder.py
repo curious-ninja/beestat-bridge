@@ -196,6 +196,7 @@ async def run_recorder(settings: Settings, store: Store, ha: HomeAssistant) -> N
                                 sensor["sensor_id"],
                                 sensor["name"],
                                 "thermostat" if sensor["is_stat"] else "ecobee3_remote_sensor",
+                                sensor.get("serial"),
                             )
                         logger.info(
                             "%s: discovered %d remote sensor(s)",

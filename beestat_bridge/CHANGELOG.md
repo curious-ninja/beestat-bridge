@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.7
+
+- Match sensors by a stable id instead of just their name. Discovery now records
+  each Home Assistant device's serial number, and sensor reconciliation tries the
+  ecobee id and the HA serial (against ecobee's per-sensor pairing `code` / id)
+  before falling back to name matching. Renaming a sensor no longer risks
+  breaking the cloud/local identity link.
+- Add a "Compare sensor identifiers" diagnostic (config page + /admin/sensors/
+  identity) that lists ecobee's id/code/name next to Home Assistant's
+  serial/model/name per thermostat, so it's visible which stable id actually
+  correlates (and whether the serial match is firing).
+
 ## 0.6.6
 
 - Give local sensors the same identity as their cloud counterparts. Previously

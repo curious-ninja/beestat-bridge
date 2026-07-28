@@ -89,6 +89,11 @@ class Store:
                 );
                 """
             )
+            # Migration: sensor_meta.serial (HA device serial) added later; used to
+            # match a sensor to its ecobee-cloud counterpart by a stable id.
+            columns = [row[1] for row in self._conn.execute("PRAGMA table_info(sensor_meta)")]
+            if "serial" not in columns:
+                self._conn.execute("ALTER TABLE sensor_meta ADD COLUMN serial TEXT")
             self._conn.commit()
 
     # -- meta ---------------------------------------------------------------
@@ -266,21 +271,23 @@ class Store:
 
     # -- sensors ------------------------------------------------------------
 
-    def upsert_sensor_meta(self, identifier: str, sensor_id: str, name: str, type_: str) -> None:
+    def upsert_sensor_meta(
+        self, identifier: str, sensor_id: str, name: str, type_: str, serial: str | None = None
+    ) -> None:
         with self._lock:
             self._conn.execute(
-                "INSERT INTO sensor_meta (identifier, sensor_id, name, type, updated_at) "
-                "VALUES (?, ?, ?, ?, ?) "
+                "INSERT INTO sensor_meta (identifier, sensor_id, name, type, serial, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT (identifier, sensor_id) DO UPDATE SET name = excluded.name, "
-                "type = excluded.type, updated_at = excluded.updated_at",
-                (identifier, sensor_id, name, type_, int(time.time())),
+                "type = excluded.type, serial = excluded.serial, updated_at = excluded.updated_at",
+                (identifier, sensor_id, name, type_, serial, int(time.time())),
             )
             self._conn.commit()
 
     def sensor_meta(self, identifier: str) -> list[dict[str, Any]]:
         with self._lock:
             rows = self._conn.execute(
-                "SELECT sensor_id, name, type FROM sensor_meta WHERE identifier = ? "
+                "SELECT sensor_id, name, type, serial FROM sensor_meta WHERE identifier = ? "
                 "ORDER BY type = 'thermostat' DESC, name",
                 (identifier,),
             ).fetchall()
