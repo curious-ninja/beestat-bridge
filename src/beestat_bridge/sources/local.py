@@ -256,7 +256,11 @@ class LocalSource:
         snapshot = self._store.snapshot(serial) or {}
         index: dict[str, dict[str, Any]] = {}
         for sensor in snapshot.get("remoteSensors") or []:
-            entry = {"name": sensor.get("name"), "inUse": bool(sensor.get("inUse"))}
+            entry = {
+                "id": sensor.get("id"),
+                "name": sensor.get("name"),
+                "inUse": bool(sensor.get("inUse")),
+            }
             if sensor.get("id"):
                 index["id:" + str(sensor["id"])] = entry
             if sensor.get("name"):
@@ -293,16 +297,19 @@ class LocalSource:
         return {
             meta["sensor_id"]: self._reconcile_sensor(
                 meta["sensor_id"], meta["name"], prefix, official
-            )
+            )[1:]
             for meta in self._store.sensor_meta(serial)
         }
 
     def _reconcile_sensor(
         self, sensor_id: str, ha_name: str, prefix: str, official: dict[str, dict[str, Any]]
-    ) -> tuple[str, bool]:
-        """Prefer the ecobee-official name and inUse for a stored sensor, matching
-        by ecobee id or by name (with the thermostat prefix stripped). Falls back
-        to the Home Assistant name and inUse=True when there's no cloud match."""
+    ) -> tuple[str, str, bool]:
+        """Map a stored sensor to its ecobee-official (id, name, inUse), matching
+        by ecobee id or by name (with the thermostat prefix stripped). Emitting the
+        ecobee id — not our HA-derived one — keeps a sensor's identity the same in
+        local and cloud mode, so beestat attaches local data to the same sensor
+        (and its history) instead of registering a duplicate. Falls back to the
+        stored id / HA name / inUse=True when there's no cloud match."""
         ha_name = ha_name or sensor_id
         keys = [
             "id:" + sensor_id,
@@ -311,8 +318,12 @@ class LocalSource:
         ]
         match = next((official[k] for k in keys if k in official), None)
         if match:
-            return (match.get("name") or ha_name), match.get("inUse", True)
-        return ha_name, True
+            return (
+                str(match.get("id") or sensor_id),
+                match.get("name") or ha_name,
+                match.get("inUse", True),
+            )
+        return sensor_id, ha_name, True
 
     def _remote_sensors(
         self, serial: str, api_thermostat: dict[str, Any], sample: dict[str, Any] | None
@@ -336,7 +347,7 @@ class LocalSource:
         if stat is not None and stat.get("occupancy") is not None:
             built.append(self._capability("occupancy", "true" if stat["occupancy"] else "false"))
         if built:
-            stat_name, stat_in_use = self._reconcile_sensor("ei:0", name, prefix, official)
+            _, stat_name, stat_in_use = self._reconcile_sensor("ei:0", name, prefix, official)
             sensors.append(
                 {"id": "ei:0", "name": stat_name, "type": "thermostat",
                  "inUse": stat_in_use, "capability": built}
@@ -356,12 +367,12 @@ class LocalSource:
                 capability.append(
                     self._capability("occupancy", "true" if latest["occupancy"] else "false")
                 )
-            display_name, in_use = self._reconcile_sensor(
+            emit_id, display_name, in_use = self._reconcile_sensor(
                 meta["sensor_id"], meta["name"], prefix, official
             )
             sensors.append(
                 {
-                    "id": meta["sensor_id"],
+                    "id": emit_id,
                     "name": display_name,
                     "type": meta["type"],
                     "inUse": in_use,
@@ -395,16 +406,21 @@ class LocalSource:
         """Build the runtimeReport sensorList for one thermostat from recorded
         remote-sensor samples: columns "<sensor_id>:<capability_id>" (temperature
         in degrees, ×10'd by beestat on store; occupancy 1/0), 5-minute buckets."""
+        official = self._official_sensors(serial)
+        prefix = self._stat_prefix(serial)
         metas = [m for m in self._store.sensor_meta(serial) if m["sensor_id"] != "ei:0"]
         columns = ["date", "time"]
-        specs: list[tuple[str, str]] = []  # (sensor_id, capability_type)
+        specs: list[tuple[str, str]] = []  # (internal sensor_id, capability_type)
         buckets_by_sensor: dict[str, dict[int, list[dict[str, Any]]]] = {}
-        present_metas = []
+        present: list[dict[str, str]] = []  # {sensorId (emitted), sensorName, sensorType}
         for meta in metas:
-            sensor_id = meta["sensor_id"]
+            sensor_id = meta["sensor_id"]  # internal storage key
             samples = self._store.sensor_samples(serial, sensor_id, begin_ts, end_ts)
             if not samples:
                 continue
+            # Emit the ecobee-official id/name so this sensor's local history lands
+            # on the same beestat sensor as its cloud history.
+            emit_id, emit_name, _ = self._reconcile_sensor(sensor_id, meta["name"], prefix, official)
             buckets: dict[int, list[dict[str, Any]]] = {}
             has_occupancy = False
             for sample in samples:
@@ -413,11 +429,14 @@ class LocalSource:
                 if sample["occupancy"] is not None:
                     has_occupancy = True
             buckets_by_sensor[sensor_id] = buckets
-            present_metas.append(meta)
-            columns.append(sensor_id + ":" + CAPABILITY_ID["temperature"])
+            present.append(
+                {"sensorId": emit_id, "sensorName": emit_name, "sensorType": meta["type"],
+                 "sensorUsage": "monitor"}
+            )
+            columns.append(emit_id + ":" + CAPABILITY_ID["temperature"])
             specs.append((sensor_id, "temperature"))
             if has_occupancy:
-                columns.append(sensor_id + ":" + CAPABILITY_ID["occupancy"])
+                columns.append(emit_id + ":" + CAPABILITY_ID["occupancy"])
                 specs.append((sensor_id, "occupancy"))
 
         if not specs:
@@ -439,21 +458,9 @@ class LocalSource:
                     cells.append(("1" if any(occ) else "0") if occ else "")
             data.append(",".join(cells))
 
-        official = self._official_sensors(serial)
-        prefix = self._stat_prefix(serial)
         return {
             "thermostatIdentifier": serial,
-            "sensors": [
-                {
-                    "sensorId": meta["sensor_id"],
-                    "sensorName": self._reconcile_sensor(
-                        meta["sensor_id"], meta["name"], prefix, official
-                    )[0],
-                    "sensorType": meta["type"],
-                    "sensorUsage": "monitor",
-                }
-                for meta in present_metas
-            ],
+            "sensors": present,
             "columns": columns,
             "data": data,
         }

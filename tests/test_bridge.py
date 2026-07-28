@@ -261,9 +261,12 @@ def test_local_sensors_prefer_official_names_and_in_use(tmp_path):
         LocalSource(settings, store).thermostat({"selection": {"selectionType": "registered"}})
     )
     by_id = {s["id"]: s for s in result["thermostatList"][0]["remoteSensors"]}
-    # The HomeKit "Upstairs Bedroom" resolves to the official "Bedroom", inUse false.
-    assert by_id["rs:abc"]["name"] == "Bedroom"
-    assert by_id["rs:abc"]["inUse"] is False
+    # The HomeKit "Upstairs Bedroom" resolves to the ecobee sensor rs:100 —
+    # emitted under ecobee's own id (not our HA-derived rs:abc) so beestat keeps
+    # one sensor identity across cloud and local — with its name and inUse.
+    assert "rs:abc" not in by_id
+    assert by_id["rs:100"]["name"] == "Bedroom"
+    assert by_id["rs:100"]["inUse"] is False
     store.close()
 
 
@@ -387,6 +390,45 @@ def test_admin_thermostats_hides_stale_cloud_fields(client):
     assert stale["cloud"]["stale"] is True
     assert stale["current"]["comfort"] is None
     assert stale["sensors"][0]["in_use"] is None
+
+
+def test_local_sensor_list_emits_ecobee_ids_for_history_continuity(tmp_path):
+    """The runtimeReport sensorList must key columns and sensorId by ecobee's own
+    sensor id (from the snapshot), so local sensor history attaches to the same
+    beestat sensor as the cloud history instead of a duplicate."""
+    import datetime as dt
+
+    from beestat_bridge.sources.local import LocalSource
+    from beestat_bridge.store import Store
+
+    settings = Settings(
+        mode="local",
+        data_dir=tmp_path,
+        thermostats=[Thermostat(serial="123456789012", homekit_entity="climate.test")],
+    )
+    store = Store(settings.db_path)
+    store.upsert_snapshot("123456789012", {
+        "identifier": "123456789012", "name": "Upstairs",
+        "remoteSensors": [
+            {"id": "rs2:100", "name": "Kitchen", "type": "ecobee3_remote_sensor", "inUse": True},
+        ],
+    })
+    store.upsert_sensor_meta("123456789012", "rs:localdev", "Upstairs Kitchen", "ecobee3_remote_sensor")
+    date = "2026-07-20"
+    base = int(dt.datetime.strptime(date, "%Y-%m-%d").timestamp())
+    store.insert_sensor_sample("123456789012", "rs:localdev", base + 130, {"temperature": 70.5})
+
+    result = json.loads(LocalSource(settings, store).runtime_report({
+        "selection": {"selectionType": "registered"},
+        "startDate": date, "endDate": date, "startInterval": 0, "endInterval": 287,
+        "columns": "zoneAveTemp",
+    }))
+    entry = result["sensorList"][0]
+    assert entry["sensors"][0]["sensorId"] == "rs2:100"       # ecobee id, not rs:localdev
+    assert entry["sensors"][0]["sensorName"] == "Kitchen"
+    assert "rs2:100:1" in entry["columns"]
+    assert not any(c.startswith("rs:localdev") for c in entry["columns"])
+    store.close()
 
 
 def test_local_runtime_report_sensor_list(tmp_path):

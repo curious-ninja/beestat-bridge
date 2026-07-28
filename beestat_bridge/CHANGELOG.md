@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.6
+
+- Give local sensors the same identity as their cloud counterparts. Previously
+  local mode invented its own sensor ids (rs:<ha_device_id>), so beestat saw them
+  as different sensors from the ecobee-cloud ones (rs2:100, …) — registering
+  duplicates and, worse, deactivating the cloud sensors that held all the
+  historical graph data. The local source now maps each discovered sensor to its
+  ecobee-official id from the snapshot (by name) and emits that id everywhere —
+  the thermostat remoteSensors and the runtimeReport sensorList (columns and
+  sensorId). Local readings now attach to the same beestat sensor as the cloud
+  history, so remote-sensor graphs stay continuous across cloud/local and the
+  cloud history that was hidden comes back (after beestat's next sensor sync
+  reactivates those sensors). Sensors with no cloud match keep their local id.
+
 ## 0.6.5
 
 - Add a "Check cloud sensor history" diagnostic (config page + /admin/archive/
