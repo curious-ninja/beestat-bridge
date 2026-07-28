@@ -44,6 +44,14 @@ class HomeAssistant:
         response.raise_for_status()
         return response.json()
 
+    async def time_zone(self) -> str | None:
+        """The home's configured IANA time zone (HA /config). Used to label
+        runtimeReport buckets in the thermostat's local time when no cloud
+        snapshot time zone is available."""
+        response = await self._client.get("/config")
+        response.raise_for_status()
+        return response.json().get("time_zone")
+
     async def render_template(self, template: str) -> str:
         """Render a Jinja template server-side. This is the only REST route that
         can reach the device/entity registry (device_id, device_attr,

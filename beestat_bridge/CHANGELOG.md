@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.4
+
+- Fix the thermostat runtime graph (indoor temp, setpoints, equipment) being
+  empty in local mode. beestat discards any runtime row that has a null value in
+  any equipment column, and its CSV parser treats a blank cell as null — so our
+  rows, which left idle equipment columns blank, were thrown away wholesale
+  (real ecobee reports 0, not blank). Every equipment column on a sampled row is
+  now 0 by default, and HVACmode always resolves to a valid mode, so the rows are
+  accepted and the graph fills. (The sensor graph was unaffected because sensor
+  rows have no such null check — which is why only it kept working.)
+- Make runtimeReport bucket timestamps robust. Buckets are labeled in the
+  thermostat's local time, taken from the cloud snapshot's location; if that's
+  ever missing (as it was during the 0.6.0 partial-snapshot window), the bridge
+  now falls back to the home's Home Assistant time zone instead of the container
+  clock (UTC), which was shifting the sensor graph's time axis.
+
 ## 0.6.3
 
 - Fix the config page hanging at "..." with no data. A stale-badge tooltip added

@@ -164,6 +164,14 @@ async def run_recorder(settings: Settings, store: Store, ha: HomeAssistant) -> N
     # per-poll registry scan.
     discovered: dict[str, list[dict[str, Any]]] = {}
     discovered_at: dict[str, float] = {}
+    # Record the home's time zone so runtimeReport buckets can be labeled in the
+    # thermostat's local time even when no cloud snapshot time zone exists.
+    try:
+        tz = await ha.time_zone()
+        if tz:
+            store.set_ha_time_zone(tz)
+    except Exception:
+        logger.debug("could not fetch HA time zone", exc_info=True)
     while True:
         ts = int(time.time())
         try:

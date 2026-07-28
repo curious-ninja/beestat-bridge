@@ -63,6 +63,22 @@ RUNTIME_COLUMNS = [
 # the names ecobee actually returns so the local source matches.
 RESPONSE_COLUMN_NAMES = {"hvacMode": "HVACmode"}
 
+# Equipment-runtime columns beestat requires to be NON-null on every row: its
+# sync (api/runtime.php) maps an empty CSV cell to null and then throws the whole
+# row away if any of these is null. Real ecobee reports 0 (not blank) for idle
+# equipment, so a row with real data must carry 0 here, never "".
+EQUIPMENT_SECONDS_COLUMNS = [
+    "compCool1", "compCool2", "compHeat1", "compHeat2",
+    "auxHeat1", "auxHeat2", "fan",
+    "humidifier", "dehumidifier", "ventilator", "economizer",
+]
+
+# HA climate hvac_mode -> ecobee HVACmode. beestat looks the result up in a fixed
+# map and requires it non-null, so unknown modes fall back to a valid value.
+HVAC_MODE_MAP = {
+    "heat": "heat", "cool": "cool", "heat_cool": "auto", "auto": "auto", "off": "off",
+}
+
 # hvac_action -> column, but only where the system type leaves no ambiguity.
 # Heat on a heat pump (compressor vs aux vs stages) is exactly the thing we
 # refuse to guess.
@@ -355,11 +371,17 @@ class LocalSource:
         return sensors
 
     def _report_tz(self, serials: list[str]) -> ZoneInfo | None:
-        """The thermostat's IANA time zone from the last cloud snapshot's
-        location.timeZone, or None to fall back to the container's local time."""
+        """The thermostat's IANA time zone for labeling runtimeReport buckets in
+        its local time (which is how beestat reads them back). Prefer the cloud
+        snapshot's location.timeZone; fall back to the home's HA time zone
+        (recorded by the recorder) so local mode stays correct even without a
+        snapshot; finally None -> the container's local time."""
+        candidates = []
         for serial in serials:
             snapshot = self._store.snapshot(serial) or {}
-            tz_name = (snapshot.get("location") or {}).get("timeZone")
+            candidates.append((snapshot.get("location") or {}).get("timeZone"))
+        candidates.append(self._store.ha_time_zone())
+        for tz_name in candidates:
             if tz_name:
                 try:
                     return ZoneInfo(tz_name)
@@ -450,6 +472,14 @@ class LocalSource:
         values: dict[str, Any] = {column: "" for column in columns}
 
         if samples:
+            # Floor every required equipment column at 0 so beestat doesn't
+            # discard the row (a blank cell becomes null, and any null equipment
+            # column throws the whole row away). Measured/mapped seconds below
+            # override these.
+            for column in EQUIPMENT_SECONDS_COLUMNS:
+                if column in values:
+                    values[column] = 0
+
             def average(key: str) -> float | None:
                 present = [sample[key] for sample in samples if sample[key] is not None]
                 return sum(present) / len(present) if present else None
@@ -474,9 +504,7 @@ class LocalSource:
                 values["zoneHeatTemp"] = round(heat_setpoint, 1)
             if cool_setpoint is not None:
                 values["zoneCoolTemp"] = round(cool_setpoint, 1)
-            values["HVACmode"] = {
-                "heat": "heat", "cool": "cool", "heat_cool": "auto", "off": "off",
-            }.get(samples[-1].get("hvac_mode") or "", "")
+            values["HVACmode"] = HVAC_MODE_MAP.get(samples[-1].get("hvac_mode") or "", "off")
             values["zoneClimate"] = (samples[-1].get("preset") or "").capitalize()
             values["zoneCalendarEvent"] = ""
 

@@ -135,6 +135,14 @@ class Store:
         with self._lock:
             self._set_meta("runtime_config", json.dumps(config))
 
+    def ha_time_zone(self) -> str | None:
+        with self._lock:
+            return self._get_meta("ha_time_zone")
+
+    def set_ha_time_zone(self, tz: str) -> None:
+        with self._lock:
+            self._set_meta("ha_time_zone", tz)
+
     def mode_override(self) -> str | None:
         with self._lock:
             return self._get_meta("mode_override")

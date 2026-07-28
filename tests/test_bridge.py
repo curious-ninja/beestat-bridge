@@ -112,6 +112,79 @@ def test_local_runtime_report_shape(client):
     assert date == "2026-07-20" and time_ == "00:00:00"
 
 
+def test_local_runtime_report_fills_equipment_columns_with_zero(tmp_path):
+    """beestat throws away any runtime row with a null (blank) equipment column,
+    so a row backed by a real sample must carry 0 (not "") for every equipment
+    column and a valid HVACmode — otherwise the whole thermostat graph is empty
+    in local mode."""
+    import datetime as dt
+
+    from beestat_bridge.sources.local import LocalSource
+    from beestat_bridge.store import Store
+
+    settings = Settings(
+        mode="local",
+        data_dir=tmp_path,
+        thermostats=[Thermostat(serial="123456789012", homekit_entity="climate.test")],
+    )
+    store = Store(settings.db_path)
+    date = "2026-07-20"
+    base = int(dt.datetime.strptime(date, "%Y-%m-%d").timestamp())
+    store.insert_sample(
+        "123456789012", base + 30,
+        {"temperature": 71.0, "humidity": 50, "hvac_mode": "heat_cool"},
+    )
+
+    result = json.loads(LocalSource(settings, store).runtime_report({
+        "selection": {"selectionType": "registered"},
+        "startDate": date, "endDate": date, "startInterval": 0, "endInterval": 287,
+        "columns": "compCool1,compHeat1,auxHeat1,auxHeat2,fan,humidifier,dehumidifier,"
+                   "ventilator,economizer,hvacMode,zoneAveTemp,zoneHumidity",
+    }))
+    cols = ["date", "time"] + result["columns"].split(",")
+    idx = {c: i for i, c in enumerate(cols)}
+    populated = [
+        r.split(",") for r in result["reportList"][0]["rowList"]
+        if r.split(",")[idx["zoneAveTemp"]] != ""
+    ]
+    assert populated, "the sampled bucket produced no populated row"
+    row = populated[0]
+    for equipment in ("compCool1", "compHeat1", "auxHeat1", "auxHeat2", "fan",
+                      "humidifier", "dehumidifier", "ventilator", "economizer"):
+        assert row[idx[equipment]] == "0", f"{equipment} was blank, row will be discarded"
+    assert row[idx["HVACmode"]] == "auto"
+    assert row[idx["zoneAveTemp"]] == "71.0"
+    store.close()
+
+
+def test_report_tz_falls_back_to_ha_time_zone(tmp_path):
+    """With no snapshot time zone, runtimeReport buckets use the home's recorded
+    HA time zone rather than the container clock, so graphs stay aligned."""
+    from zoneinfo import ZoneInfo
+
+    from beestat_bridge.sources.local import LocalSource
+    from beestat_bridge.store import Store
+
+    settings = Settings(
+        mode="local",
+        data_dir=tmp_path,
+        thermostats=[Thermostat(serial="123456789012", homekit_entity="climate.test")],
+    )
+    store = Store(settings.db_path)
+    source = LocalSource(settings, store)
+    assert source._report_tz(["123456789012"]) is None  # nothing known yet
+    store.set_ha_time_zone("America/New_York")
+    assert source._report_tz(["123456789012"]) == ZoneInfo("America/New_York")
+
+    # A snapshot time zone still wins over the HA fallback.
+    store.upsert_snapshot(
+        "123456789012",
+        {"identifier": "123456789012", "location": {"timeZone": "America/Chicago"}},
+    )
+    assert source._report_tz(["123456789012"]) == ZoneInfo("America/Chicago")
+    store.close()
+
+
 def test_local_remote_sensors_from_store(tmp_path):
     """Local source emits ecobee-shaped remoteSensors: a built-in thermostat
     sensor (temp/humidity from the climate sample) plus discovered remotes, with
