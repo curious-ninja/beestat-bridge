@@ -305,6 +305,27 @@ class LocalSource:
             for meta in self._store.sensor_meta(serial)
         }
 
+    def sensor_identity_map(self, serial: str) -> list[dict[str, Any]]:
+        """Diagnostics: how each stored sensor resolves — its internal storage id
+        and HA serial, and the ecobee id it's emitted under (so it's visible
+        whether the cloud/local identity match actually fired)."""
+        official = self._official_sensors(serial)
+        prefix = self._stat_prefix(serial)
+        out = []
+        for meta in self._store.sensor_meta(serial):
+            emit_id, name, in_use = self._reconcile_sensor(
+                meta["sensor_id"], meta["name"], prefix, official, meta.get("serial")
+            )
+            out.append({
+                "stored_id": meta["sensor_id"],
+                "ha_name": meta["name"],
+                "serial": meta.get("serial"),
+                "emitted_as": emit_id,
+                "resolved_name": name,
+                "matched_cloud": emit_id != meta["sensor_id"] or meta["sensor_id"] == "ei:0",
+            })
+        return out
+
     def _reconcile_sensor(
         self, sensor_id: str, ha_name: str, prefix: str, official: dict[str, dict[str, Any]],
         serial: str | None = None,

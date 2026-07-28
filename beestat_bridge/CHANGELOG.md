@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.8
+
+- Finer indoor temperature in local mode. HomeKit reports the climate entity's
+  current_temperature at coarse (~1°) resolution, so the thermostat graph looked
+  stepped. The recorder now prefers the thermostat's own built-in temperature
+  sensor (and humidity) when discovered, which reads to a decimal — matching the
+  granularity you get from the remote sensors.
+- The "Compare sensor identifiers" diagnostic now also shows how each recorded
+  sensor is currently emitted (`resolved`: stored id + serial -> the ecobee id
+  it's sent as), so it's clear at a glance whether the cloud/local identity match
+  is firing.
+
 ## 0.6.7
 
 - Match sensors by a stable id instead of just their name. Discovery now records

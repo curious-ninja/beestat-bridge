@@ -489,6 +489,9 @@ async def admin_sensors_identity(request: Request) -> dict[str, Any]:
             "homekit_entity": thermostat.homekit_entity,
             "ecobee_sensors": ecobee,
             "ha_sensors": ha_sensors,
+            # How each recorded sensor is actually being emitted right now
+            # (emitted_as == an ecobee rs2:* id means the match fired).
+            "resolved": LocalSource(context.settings, context.store).sensor_identity_map(serial),
         })
     return {"thermostats": thermostats}
 

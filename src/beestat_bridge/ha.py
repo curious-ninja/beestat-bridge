@@ -147,12 +147,13 @@ class HomeAssistant:
         sensors: list[dict[str, Any]] = []
         for device_id_, device in devices.items():
             is_stat = device["is_stat"]
-            # A remote sensor must have a temperature; the thermostat's own device
-            # is kept only for its occupancy (temp/humidity come from the climate
-            # entity's own sample).
+            # A remote sensor must have a temperature. The thermostat's own device
+            # is kept if it has EITHER its occupancy sensor OR a dedicated
+            # temperature sensor (which reads finer than the climate entity's
+            # current_temperature — the recorder prefers it for the indoor temp).
             if not is_stat and device["temperature"] is None:
                 continue
-            if is_stat and device["occupancy"] is None:
+            if is_stat and device["occupancy"] is None and device["temperature"] is None:
                 continue
             sensors.append(
                 {

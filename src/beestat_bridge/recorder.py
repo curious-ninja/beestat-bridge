@@ -177,14 +177,8 @@ async def run_recorder(settings: Settings, store: Store, ha: HomeAssistant) -> N
         try:
             outdoor = await _read_outdoor(ha, settings.outdoor_temperature)
             for thermostat in settings.thermostats:
-                values = await _read_thermostat(ha, thermostat)
-                if values is None:
-                    logger.warning("entity %s unavailable", thermostat.homekit_entity)
-                    continue
-                values["outdoor_temperature"] = outdoor
-                store.insert_sample(thermostat.serial, ts, values)
-
-                # Remote sensors: refresh discovery on TTL, then sample each.
+                # Refresh discovery on TTL first, so the thermostat's own
+                # temperature sensor is available before we record its sample.
                 if ts - discovered_at.get(thermostat.serial, 0) > SENSOR_DISCOVERY_TTL:
                     try:
                         sensors = await ha.discover_sensors(thermostat.homekit_entity)
@@ -205,6 +199,28 @@ async def run_recorder(settings: Settings, store: Store, ha: HomeAssistant) -> N
                         )
                     except Exception:
                         logger.exception("sensor discovery failed for %s", thermostat.homekit_entity)
+
+                values = await _read_thermostat(ha, thermostat)
+                if values is None:
+                    logger.warning("entity %s unavailable", thermostat.homekit_entity)
+                    continue
+                values["outdoor_temperature"] = outdoor
+
+                # HomeKit reports the climate entity's current_temperature coarsely
+                # (~1°); the thermostat's built-in temperature sensor is finer. Use
+                # it for the indoor temperature/humidity when discovered.
+                stat_sensor = next(
+                    (s for s in discovered.get(thermostat.serial, []) if s["is_stat"]), None
+                )
+                if stat_sensor is not None:
+                    stat_reading = await _read_sensor(ha, stat_sensor)
+                    if stat_reading.get("temperature") is not None:
+                        values["temperature"] = stat_reading["temperature"]
+                    if stat_reading.get("humidity") is not None:
+                        values["humidity"] = stat_reading["humidity"]
+
+                store.insert_sample(thermostat.serial, ts, values)
+
                 for sensor in discovered.get(thermostat.serial, []):
                     store.insert_sensor_sample(
                         thermostat.serial, sensor["sensor_id"], ts, await _read_sensor(ha, sensor)
