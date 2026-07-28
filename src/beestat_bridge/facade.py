@@ -13,9 +13,11 @@ its token dance stays exercised against the bridge.
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import json
 import logging
 import time
+import traceback
 from typing import Any
 from urllib.parse import urlencode
 
@@ -30,8 +32,12 @@ from fastapi.responses import (
 from . import ecobee_auth, login, settings as settings_module, tokens, ui
 from .recorder import refresh_snapshots
 from .sources.cloud import CloudAuthDead
-from .sources.local import LocalSource
-from .sources.local import status_envelope
+from .sources.local import (
+    EQUIPMENT_SECONDS_COLUMNS,
+    RUNTIME_COLUMNS,
+    LocalSource,
+    status_envelope,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -173,9 +179,17 @@ async def _serve(request: Request, endpoint: str, body: str | None) -> PlainText
             payload = handler(parsed_body)
         else:
             payload = json.dumps(status_envelope(2, f"Cloud auth failed: {error}"))
-    except Exception:
+    except Exception as error:
+        # Never answer a crash with ecobee status 3 "Processing error.": beestat
+        # maps that message to its benign code 10512 ("pretend it worked and
+        # move on") and advances its runtime-sync cursor past the window with no
+        # data — so a persistent bug here freezes the graphs while every sync
+        # reports success. Status 4 maps to a hard beestat-side error (10504)
+        # that holds the cursor, shows up in the beestat-sync log, and is
+        # retried on the next tick; the traceback logged above has the cause.
         logger.exception("%s failed (mode=%s)", endpoint, mode)
-        payload = json.dumps(status_envelope(3, "Processing error."))
+        message = f"Bridge {endpoint} serve failed (mode={mode}): {error!r}"
+        payload = json.dumps(status_envelope(4, message[:300]))
 
     return PlainTextResponse(payload, media_type="application/json")
 
@@ -494,6 +508,100 @@ async def admin_sensors_identity(request: Request) -> dict[str, Any]:
             "resolved": LocalSource(context.settings, context.store).sensor_identity_map(serial),
         })
     return {"thermostats": thermostats}
+
+
+@router.get("/admin/selftest/runtime")
+async def admin_selftest_runtime(request: Request) -> dict[str, Any]:
+    """One-click truth-check for 'the beestat graphs are frozen': serve the same
+    runtimeReport beestat's sync requests (last ~24h, its exact column set)
+    in-process and report what came back — or the exact traceback if it failed.
+    Needed because a failure here can be invisible in beestat's own log: its
+    sync may swallow the error envelope and report success with no data."""
+    context = _context(request)
+    local = LocalSource(context.settings, context.store)
+    serials = [thermostat.serial for thermostat in context.settings.thermostats]
+    if not serials:
+        return {"ok": False, "error": "no thermostats configured for local data"}
+
+    tz = local._report_tz(serials)
+    now_local = dt.datetime.now(tz)
+    body = {
+        "selection": {"selectionType": "thermostats", "selectionMatch": ",".join(serials)},
+        "startDate": (now_local - dt.timedelta(days=1)).strftime("%Y-%m-%d"),
+        "endDate": now_local.strftime("%Y-%m-%d"),
+        "startInterval": 0,
+        "endInterval": 287,
+        "columns": ",".join(RUNTIME_COLUMNS),
+        "includeSensors": True,
+    }
+
+    try:
+        report = json.loads(local.runtime_report(body))
+    except Exception:
+        return {
+            "ok": False,
+            "request": body,
+            "error": traceback.format_exc(),
+            "note": "This exact failure breaks beestat's runtime sync — the "
+                    "thermostat and sensor graphs cannot advance until it is fixed.",
+        }
+
+    status = report.get("status") or {}
+    result: dict[str, Any] = {
+        "ok": status.get("code") == 0,
+        "effective_mode": context.mode_manager.effective_mode(),
+        "status": status,
+        "request": body,
+        "thermostats": [],
+        "sensor_lists": [],
+    }
+
+    columns = [c for c in str(report.get("columns", "")).split(",") if c]
+    # A row only lands on the graph if beestat accepts it: it discards any row
+    # with a blank (null) cell in these columns (api/runtime.php).
+    required = set(EQUIPMENT_SECONDS_COLUMNS) | {"HVACmode", "zoneAveTemp", "zoneHumidity"}
+    required_indexes = [i for i, c in enumerate(columns) if c in required]
+    for entry in report.get("reportList", []):
+        rows = entry.get("rowList") or []
+        non_blank = accepted = 0
+        last_accepted = None
+        for row in rows:
+            cells = row.split(",")
+            data_cells = cells[2:]
+            if any(cell != "" for cell in data_cells):
+                non_blank += 1
+                if all(
+                    i + 2 < len(cells) and cells[i + 2] != "" for i in required_indexes
+                ):
+                    accepted += 1
+                    last_accepted = cells[0] + " " + cells[1]
+        result["thermostats"].append({
+            "identifier": entry.get("thermostatIdentifier"),
+            "rows": len(rows),
+            "rows_with_data": non_blank,
+            "rows_beestat_accepts": accepted,
+            "last_accepted_row": last_accepted,
+        })
+
+    for entry in report.get("sensorList", []):
+        sensor_columns = entry.get("columns") or []
+        data = entry.get("data") or []
+        non_blank = 0
+        last_non_blank = None
+        for row in data:
+            cells = row.split(",")
+            if any(cell != "" for cell in cells[2:]):
+                non_blank += 1
+                last_non_blank = cells[0] + " " + cells[1]
+        result["sensor_lists"].append({
+            "identifier": entry.get("thermostatIdentifier"),
+            "columns": sensor_columns,
+            "rows": len(data),
+            "rows_with_data": non_blank,
+            "last_row_with_data": last_non_blank,
+        })
+
+    return result
 
 
 @router.get("/admin/ha/entities")

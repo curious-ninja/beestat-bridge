@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.10
+
+- Stop masking serve failures as benign. A crash while serving /1/thermostat or
+  /1/runtimeReport used to answer with ecobee status 3 "Processing error." —
+  which beestat's runtime sync treats as "pretend it worked and move on",
+  silently advancing its sync cursor past the window with no data. That is how
+  the runtime graphs could freeze while every sync reported success and
+  beestat's log stayed clean. Such failures now return a hard error (status 4)
+  that beestat surfaces and retries, and the full traceback is in this add-on's
+  log.
+- Contain runtime-report failures. One poisoned 5-minute bucket now yields one
+  blank row (plus a logged traceback) instead of failing the whole report, and
+  a failure building the remote-sensor list serves the report without it
+  instead of taking the thermostat rows down too.
+- Add a "Test runtime report" diagnostic (config page + /admin/selftest/
+  runtime). It serves the exact runtime report beestat's sync requests for the
+  last 24h, in-process, and reports either row/sensor counts — including how
+  many rows beestat would actually accept and the last accepted row time — or
+  the exact traceback that breaks the sync.
+
 ## 0.6.9
 
 - Fix the recorder stopping on a single failed read. 0.6.8 added a read of the

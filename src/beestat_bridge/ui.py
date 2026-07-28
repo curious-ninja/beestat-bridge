@@ -269,6 +269,7 @@ PAGE = """<!doctype html>
   <button onclick="diagnoseDiscovery()">Diagnose sensor discovery</button>
   <button onclick="diagnoseCloudSensors()">Check cloud sensor history</button>
   <button onclick="diagnoseSensorIdentity()">Compare sensor identifiers</button>
+  <button onclick="diagnoseRuntimeReport()">Test runtime report</button>
   <pre id="discover-output" class="diag" hidden></pre>
 
   <div class="grid2">
@@ -534,6 +535,16 @@ async function diagnoseSensorIdentity() {
   out.textContent = 'Comparing ecobee vs Home Assistant sensor identifiers…';
   try {
     out.textContent = JSON.stringify(await api('admin/sensors/identity'), null, 2);
+  } catch (e) {
+    out.textContent = 'Failed: ' + e;
+  }
+}
+async function diagnoseRuntimeReport() {
+  const out = document.getElementById('discover-output');
+  out.hidden = false;
+  out.textContent = 'Serving the last 24h runtime report the way beestat requests it…';
+  try {
+    out.textContent = JSON.stringify(await api('admin/selftest/runtime'), null, 2);
   } catch (e) {
     out.textContent = 'Failed: ' + e;
   }

@@ -648,17 +648,41 @@ class LocalSource:
                 by_bucket.setdefault(bucket, []).append(sample)
 
             row_list = []
+            row_error_logged = False
             for bucket_start in range(
                 (begin_ts // BUCKET_SECONDS) * BUCKET_SECONDS, end_ts, BUCKET_SECONDS
             ):
-                row_list.append(
-                    self._bucket_row(
+                # One poisoned bucket must not take down the whole report (and
+                # with it the thermostat graph); emit it blank — beestat
+                # discards blank rows — and log the first failure per serve.
+                try:
+                    row = self._bucket_row(
                         thermostat, bucket_start, by_bucket.get(bucket_start, []), columns, tz
                     )
-                )
+                except Exception:
+                    if not row_error_logged:
+                        logger.exception(
+                            "%s: bucket row failed at ts=%d; emitting blank row",
+                            serial, bucket_start,
+                        )
+                        row_error_logged = True
+                    local_dt = dt.datetime.fromtimestamp(bucket_start, tz)
+                    row = ",".join(
+                        [local_dt.strftime("%Y-%m-%d"), local_dt.strftime("%H:%M:%S")]
+                        + [""] * len(columns)
+                    )
+                row_list.append(row)
             report_list.append({"thermostatIdentifier": serial, "rowList": row_list})
 
-            sensors = self._sensor_list(serial, begin_ts, end_ts, tz)
+            # The sensorList is an add-on to the report; a failure building it
+            # must not blank the thermostat rows too. Serve without it and log.
+            try:
+                sensors = self._sensor_list(serial, begin_ts, end_ts, tz)
+            except Exception:
+                logger.exception(
+                    "%s: sensorList build failed; serving report without it", serial
+                )
+                sensors = None
             if sensors is not None:
                 sensor_list.append(sensors)
 
